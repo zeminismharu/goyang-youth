@@ -15,7 +15,6 @@ on:
   push:
     branches:
       - main
-      - claude/goyang-youth-policy-webapp-d2eqkm
   workflow_dispatch:
 
 jobs:

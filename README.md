@@ -62,6 +62,11 @@ npm run cf:deploy    # 빌드 + 배포
 
 `npm run cf:deploy`는 로그인이 필요합니다(`npx wrangler login`).
 
+워커 이름은 `wrangler.jsonc`의 `name` 값인 **`goyang-youth`** 이고, 배포되면
+`https://goyang-youth.<계정서브도메인>.workers.dev` 로 접속됩니다.
+`routes`와 `custom_domain`을 설정하지 않았으므로 계정 내 다른 워커나
+기존 도메인의 트래픽에는 영향을 주지 않습니다.
+
 ### GitHub Actions로 자동 배포
 
 `.github/workflows/deploy.yml`이 이미 들어 있습니다.

@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "goyang-youth-policy",
+  "name": "goyang-youth",
   "main": ".open-next/worker.js",
 
   // nodejs_compat 와 2024-09-23 이후 날짜는 Next.js 구동에 필수다.

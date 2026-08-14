@@ -12,7 +12,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 
-const STORAGE_KEY = 'goyang-youth-policy:bookmarks';
+const STORAGE_KEY = 'goyang-youth:bookmarks';
 
 export function useBookmarks() {
   const [ids, setIds] = useState([]);
