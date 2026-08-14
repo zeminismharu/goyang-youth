@@ -174,35 +174,98 @@ Policy = {
 
 ---
 
-## ⚠️ 확인이 필요한 TODO
+## API 연동 상태
 
-작성 시점에 **온통청년 API 문서 사이트(`youthcenter.go.kr`, `data.go.kr`) 접근이
-네트워크 정책으로 차단**되어 있어, 실제 파라미터명과 응답 필드명을 문서로
-검증하지 못했습니다. 지어내지 않고 전부 TODO로 표시해 두었습니다.
+공식 문서를 확인해 **요청 규격은 확정**했고, 응답 필드명만 실제 응답으로
+검증하면 됩니다.
 
-### 연동 순서 (권장)
+출처
+- 오픈 API 제공목록: https://www.youthcenter.go.kr/cmnFooter/openapiIntro/oaiDoc
+- 오픈 API 이용방법: https://www.youthcenter.go.kr/cmnFooter/openapiIntro/oaiGuide
 
-1. `.env.local`에 `YOUTH_API_KEY` 입력 후 `npm run dev`
-2. 브라우저에서 한 번 접속 → **`npm run dev`를 띄운 터미널**을 확인
-   `route.js`가 응답의 최상위 키 / 항목 키 / 첫 항목 원본을 그대로 찍어줍니다.
-3. 찍힌 실제 키 이름으로 아래 TODO들을 확정
+### ✅ 확정된 것
 
-### TODO 위치
+```
+GET https://www.youthcenter.go.kr/opi/youthPlcyList.do
+```
 
-| # | 파일 | 내용 |
+응답 형식은 **XML**입니다.
+
+| 파라미터 | 필수 | 설명 |
 |---|---|---|
-| ① | `src/app/api/policies/route.js` | **엔드포인트 URL** — 구버전(`/opi/youthPlcyList.do`, XML)인지 신버전(`/go/ythip/getPlcy`, JSON)인지 문서로 확정 |
-| ② | `src/app/api/policies/route.js` | **쿼리 파라미터명** — 인증키(`apiKeyNm` vs `openApiVlak`), 페이지(`pageNum` vs `pageIndex`), 건수(`pageSize` vs `display`), 응답형식(`rtnType`) |
-| ③ | `src/app/api/policies/route.js` | **`GOYANG_ZIP`** — 시 코드(41280)로 조회 시 구 단위 정책까지 나오는지 확인. 안 나오면 `GOYANG_ZIP_CODES`를 순회 호출 |
-| ④ | `src/app/api/policies/route.js` | **응답 파싱 경로** — `extractRows()`가 후보를 순서대로 시도하는 임시 코드. 실제 경로 한 줄로 확정 |
-| ⑤ | `src/lib/normalize.js` | **응답 필드명** — `FIELD_CANDIDATES`의 각 후보 배열을 실제 키 하나로 확정 (`plcyNm`, `plcyExplnCn`, 날짜 필드 등) |
-| ⑥ | `src/lib/normalize.js` | **카테고리 매핑** — 온통청년 대분류(`lclsfNm`)의 실제 값 목록 확인. 코드값으로 올 가능성 있음 |
-| ⑦ | `src/lib/normalize.js` | **법정동코드** — 41280/41281/41285/41287을 code.go.kr 법정동코드 전체자료로 재확인 |
+| `openApiVlak` | Y | 마이페이지 > OpenAPI관리에서 발급받은 인증키 |
+| `display` | Y | 출력 건수. 기본 10, **최대 100** |
+| `pageIndex` | Y | 조회할 페이지. 기본 1 |
+| `srchPolyBizSecd` | | 지역코드 — **시·도 단위만** |
+| `bizTycdSel` | | 정책유형 코드 |
+| `query` / `keyword` | | 검색어 |
+| `srchPolicyId` | | 정책 ID (상세조회 시 필수) |
 
-④⑤는 "후보를 여러 개 시도"하는 임시 방식이라 필드명이 조금 달라도 앱이 죽지는
-않지만, 반드시 실제 키를 확인해 확정하세요.
+정책유형 코드: `023010` 일자리 · `023020` 주거 · `023030` 교육 ·
+`023040` 복지·문화 · `023050` 참여·권리
+
+시·도 코드: `003002001` 서울 … `003002008` **경기** … `003002017` 세종
+
+### ⚠️ 이 API의 제약 두 가지
+
+**1. 시군구 필터가 없습니다.**
+`srchPolyBizSecd`는 광역 17개 코드만 받습니다. 고양시(법정동코드 41280) 같은
+시군구 단위 조회가 불가능합니다.
+
+→ 대응: 경기(`003002008`) 전체를 페이지로 받아 온 뒤, `normalize.js`의
+`detectGoyangRegion()`이 정책명·소개·지원내용·담당기관 텍스트에서
+`고양 / 덕양 / 일산동 / 일산서`를 찾아 걸러냅니다. 구가 특정되면 해당 구로,
+아니면 `고양시 전역`으로 잡습니다.
+
+**2. 신청기간이 자유 텍스트입니다.**
+정규화된 날짜 필드가 아니라 `"09.13. ~ 09.26 (18:00까지)"` 처럼 옵니다.
+**연도가 없는 경우가 많습니다.** D-day가 이 앱의 핵심이라 `parsePeriod()`에서
+따로 처리합니다.
+
+| 입력 | 결과 |
+|---|---|
+| `2026.08.20 ~ 2026.09.30` | `2026-08-20` ~ `2026-09-30` |
+| `09.13. ~ 09.26 (18:00까지)` | 올해로 보정 → `2026-09-13` ~ `2026-09-26` |
+| `12.20 ~ 01.15` | 해 넘김 인식 → `2026-12-20` ~ `2027-01-15` |
+| `상시` `연중` `예산 소진 시까지` `-` | `null` (상시접수로 표시) |
+
+연도가 없을 때는 올해로 보되, 그렇게 계산한 마감일이 6개월 넘게 지났으면
+내년 공고로 간주합니다.
+
+### ❓ 남은 확인 1가지 — 응답 필드명
+
+공식 출력결과표가 JavaScript로 렌더돼 읽지 못했습니다. `normalize.js`의 `F`
+객체에 관찰된 이름을 후보로 넣어 두었고, 이름이 조금 달라도 앱이 죽지 않게
+여러 후보를 순서대로 시도합니다.
+
+현재 1순위 후보:
+
+| 용도 | 후보 |
+|---|---|
+| 정책 ID | `bizId` |
+| 정책명 | `polyBizSjnm` |
+| 정책 소개 | `polyItcnCn` |
+| 지원 내용 | `sporCn` |
+| 연령 | `ageInfo` |
+| 신청기간 | `rqutPrdCn` |
+| 담당기관 | `cnsgNmor` |
+| 신청 URL | `rqutUrla` |
+| 정책분야 | `polyRlmCd` |
+
+**확정 방법**
+
+1. 인증키를 `YOUTH_API_KEY`로 넣습니다 (로컬은 `.env.local`, 배포는 Worker 시크릿)
+2. 사이트에 한 번 접속합니다
+3. 로그를 확인합니다
+   - 로컬: `npm run dev`를 띄운 터미널
+   - 배포: Cloudflare 대시보드 → `goyang-youth` → **Observability**
+4. `[youth-api]`로 시작하는 줄에 실제 키 목록과 첫 항목 원본이 찍힙니다
+5. 그 이름으로 `normalize.js`의 `F` 배열을 실제 키 하나로 줄이면 확정입니다
+
+인증키는 로그에 절대 찍히지 않도록 되어 있습니다.
 
 ---
+
 
 ## ⚠️ 샘플 데이터 고지
 
