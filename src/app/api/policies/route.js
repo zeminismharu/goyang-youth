@@ -15,8 +15,20 @@ import { XMLParser } from 'fast-xml-parser';
 import { mockPolicies, MOCK_NOTICE } from '@/lib/mockPolicies';
 import { normalizePolicies, GOYANG_ZIP } from '@/lib/normalize';
 
-/** 1시간 캐시 */
-export const revalidate = 3600;
+/**
+ * 요청마다 서버에서 실행한다.
+ *
+ * 왜 force-dynamic인가:
+ * 라우트 자체를 정적으로 굳히면(빌드 시점 프리렌더) 배포 후 인증키를 넣어도
+ * 재빌드 전까지 빌드 당시의 결과(=샘플 데이터)가 계속 나온다.
+ * Cloudflare Workers처럼 ISR용 영속 캐시를 따로 붙여야 하는 환경에서 특히 그렇다.
+ * 그래서 라우트는 런타임에 실행하고, "1시간 캐시"는 아래 온통청년 호출 자체에
+ * 건다(next: { revalidate }). 결과적으로 외부 API는 1시간에 한 번만 때린다.
+ */
+export const dynamic = 'force-dynamic';
+
+/** 온통청년 API 호출 캐시 시간(초). 1시간. */
+const REVALIDATE_SECONDS = 3600;
 
 // ==================================================================
 // TODO(확인필요) ①: 엔드포인트 URL
@@ -133,7 +145,7 @@ export async function GET() {
     const res = await fetch(url, {
       headers: { Accept: 'application/json, text/xml;q=0.9' },
       // Next.js 데이터 캐시: 1시간 유지
-      next: { revalidate },
+      next: { revalidate: REVALIDATE_SECONDS },
     });
 
     if (!res.ok) {

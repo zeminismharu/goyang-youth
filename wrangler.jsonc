@@ -1,0 +1,22 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "goyang-youth-policy",
+  "main": ".open-next/worker.js",
+
+  // nodejs_compat 와 2024-09-23 이후 날짜는 Next.js 구동에 필수다.
+  "compatibility_date": "2026-08-14",
+  "compatibility_flags": ["nodejs_compat"],
+
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+
+  "observability": {
+    "enabled": true
+  }
+
+  // 온통청년 인증키는 여기에 적지 않는다. 평문으로 커밋되기 때문이다.
+  // 배포 후 아래 명령으로 암호화된 시크릿으로 넣는다:
+  //   npx wrangler secret put YOUTH_API_KEY
+}

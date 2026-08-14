@@ -30,3 +30,12 @@ yarn-error.log*
 # typescript (이 프로젝트는 JS만 쓰지만 혹시 생성될 경우 대비)
 *.tsbuildinfo
 next-env.d.ts
+
+# cloudflare / opennext
+.open-next/
+.wrangler/
+cloudflare-env.d.ts
+
+# wrangler 로컬 시크릿 (절대 커밋 금지)
+.dev.vars
+.dev.vars.*

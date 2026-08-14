@@ -49,6 +49,55 @@ YOUTH_API_KEY=여기에_발급받은_인증키
 
 ---
 
+## 배포 (Cloudflare Workers)
+
+[OpenNext Cloudflare 어댑터](https://opennext.js.org/cloudflare)로 Cloudflare Workers에
+배포합니다. 서버 프록시(`/api/policies`)가 그대로 살아 있어서 인증키 은닉 구조가
+유지됩니다.
+
+```bash
+npm run cf:preview   # 로컬에서 workerd 런타임으로 미리보기
+npm run cf:deploy    # 빌드 + 배포
+```
+
+`npm run cf:deploy`는 로그인이 필요합니다(`npx wrangler login`).
+
+### GitHub Actions로 자동 배포
+
+`.github/workflows/deploy.yml`이 이미 들어 있습니다.
+저장소 **Settings → Secrets and variables → Actions** 에 아래 2개를 넣으면
+푸시할 때마다 자동 배포됩니다.
+
+| 시크릿 | 값 |
+|---|---|
+| `CLOUDFLARE_API_TOKEN` | Workers 배포 권한이 있는 API 토큰 |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare 대시보드 우측의 Account ID |
+
+### 배포 후 인증키 넣기
+
+온통청년 인증키는 **빌드가 아니라 런타임에** 필요하므로 GitHub Secrets가 아니라
+Worker 시크릿으로 등록합니다.
+
+```bash
+npx wrangler secret put YOUTH_API_KEY
+```
+
+`src/app/api/policies/route.js`는 `dynamic = 'force-dynamic'`이라 요청마다 실행되고,
+시크릿을 넣으면 **재배포 없이 바로** 실데이터로 전환됩니다.
+외부 API 호출 자체에 1시간 캐시(`next: { revalidate: 3600 }`)가 걸려 있습니다.
+
+> ISR/데이터 캐시를 여러 요청·인스턴스에 걸쳐 영속시키려면 `open-next.config.ts`에
+> R2 또는 KV 기반 incremental cache를 붙여야 합니다.
+> 지금은 기본 설정이라 캐시가 인스턴스 수명에 묶입니다.
+> 참고: https://opennext.js.org/cloudflare/caching
+
+### `open-next.config.ts`만 TypeScript인 이유
+
+`@opennextjs/cloudflare` 어댑터가 이 파일명을 고정으로 찾기 때문입니다(다른 확장자
+불가). 빌드 도구 설정 파일 3줄이며, **애플리케이션 코드는 전부 `.js`/`.jsx`** 입니다.
+
+---
+
 ## 아키텍처
 
 ```
