@@ -1,0 +1,38 @@
+/* Pretendard (한글 폰트) — CDN에서 불러온다.
+   네트워크가 막힌 환경에서는 tailwind.config.js의 폴백 폰트 스택이 대신 쓰인다. */
+@import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-white text-neutral-900 antialiased;
+    word-break: keep-all; /* 한글 단어가 어중간하게 잘리지 않게 */
+  }
+
+  /* 키보드 포커스는 항상 또렷하게 보이도록 (마우스 클릭 시에는 안 보임) */
+  :focus-visible {
+    @apply outline-none ring-2 ring-neutral-900 ring-offset-2 ring-offset-white;
+  }
+}
+
+@layer utilities {
+  /* 모달 열렸을 때 배경 스크롤 잠금 */
+  .scroll-lock {
+    overflow: hidden;
+  }
+
+  /* 카드 제목 2줄 말줄임 */
+  .line-clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+}
