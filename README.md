@@ -67,16 +67,21 @@ npm run cf:deploy    # 빌드 + 배포
 `routes`와 `custom_domain`을 설정하지 않았으므로 계정 내 다른 워커나
 기존 도메인의 트래픽에는 영향을 주지 않습니다.
 
-### GitHub Actions로 자동 배포
+### 자동 배포 (현재 구성)
 
-`.github/workflows/deploy.yml`이 이미 들어 있습니다.
-저장소 **Settings → Secrets and variables → Actions** 에 아래 2개를 넣으면
-푸시할 때마다 자동 배포됩니다.
+**Cloudflare Workers Builds**가 이 저장소에 연결되어 있어, 푸시하면 자동으로
+빌드·배포됩니다. GitHub Actions 워크플로는 두지 않습니다(중복이라 제거했습니다).
 
-| 시크릿 | 값 |
+Cloudflare 대시보드 → `goyang-youth` → **Settings → Build** 의 설정값:
+
+| 항목 | 값 |
 |---|---|
-| `CLOUDFLARE_API_TOKEN` | Workers 배포 권한이 있는 API 토큰 |
-| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare 대시보드 우측의 Account ID |
+| Build command | `npx opennextjs-cloudflare build` |
+| Deploy command | `npx wrangler deploy` |
+| Root directory | `/` |
+
+> Build command를 비워두면 `.open-next/worker.js`가 만들어지지 않아
+> 배포 단계에서 실패합니다. 반드시 채워져 있어야 합니다.
 
 ### 배포 후 인증키 넣기
 
@@ -106,15 +111,29 @@ npx wrangler secret put YOUTH_API_KEY
 ## 아키텍처
 
 ```
-브라우저                    Next.js 서버                   외부
---------                   -------------                  ------
+브라우저                    Next.js 서버 (요청마다 실행)          외부
+--------                   --------------------------          ------
 src/app/page.js            src/app/api/policies/route.js
-  "use client"      ──►      process.env.YOUTH_API_KEY  ──►  온통청년 OPEN API
-  fetch('/api/policies')       ├ 키 없음 → mockPolicies.js
-                               ├ 키 있음 → 호출 → normalize.js → Policy[]
-                               └ 실패    → mockPolicies.js 폴백
-                             (revalidate = 3600, 1시간 캐시)
+  "use client"      ──►      process.env.YOUTH_API_KEY
+  fetch('/api/policies')       │
+                               ├ 키 없음 → mockPolicies.js
+                               │
+                               ├ 키 있음 → 경기 전체 조회 ──────►  youthPlcyList.do
+                               │            (pageIndex 순회)        (XML, 1시간 캐시)
+                               │              ↓
+                               │          normalize.js
+                               │           ├ XML 파싱
+                               │           ├ 고양/덕양/일산 필터
+                               │           ├ 자유텍스트 기간 → 날짜
+                               │           └ Policy[]
+                               │
+                               └ 실패/0건 → mockPolicies.js 폴백
 ```
+
+라우트는 `dynamic = 'force-dynamic'`이라 **요청마다** 실행됩니다. 그래야 배포 후
+인증키를 넣었을 때 재빌드 없이 바로 실데이터로 넘어갑니다.
+1시간 캐시는 라우트가 아니라 **온통청년 호출 자체**(`next: { revalidate: 3600 }`)에
+걸려 있어서, 외부 API는 1시간에 한 번만 호출됩니다.
 
 인증키를 숨기는 것이 이 프록시의 존재 이유입니다. 화면은 데이터 출처가
 샘플인지 실데이터인지 신경 쓰지 않고 항상 같은 스키마만 봅니다.
