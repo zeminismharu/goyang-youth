@@ -118,6 +118,62 @@ function extractRows(payload) {
 }
 
 // ==================================================================
+// 네트워크 유틸
+// ------------------------------------------------------------------
+// 지난번 온통청년 장애 때 진단이 "HTTP 400 / HTTP 522" 뿐이라 원인을
+// 좁힐 수 없었다. 서버가 본문에 이유를 적어 보내는데 그걸 버리고
+// 있었기 때문이다. 이제는 본문 앞부분을 사유에 함께 담는다.
+// 522(엣지 연결 타임아웃) 같은 일시 장애는 한 번 더 시도해 본다.
+// ==================================================================
+
+/** 최대 시도 횟수(원 시도 포함). 522는 응답까지 오래 걸려 크게 두지 않는다. */
+const MAX_ATTEMPTS = 2;
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** 잠깐 뒤 다시 하면 될 법한 상태코드인가 */
+function isTransient(status) {
+  return status === 408 || status === 429 || status >= 500;
+}
+
+/** 혹시 본문에 인증키가 섞여 돌아오더라도 로그·응답에 남지 않게 지운다 */
+function redact(text, apiKey) {
+  if (!apiKey) return text;
+  return text.split(apiKey).join('***');
+}
+
+/** 오류 사유에 붙일 만큼만 줄인다. 길면 붙여넣다 잘린다. */
+function shorten(text) {
+  return String(text || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+}
+
+/** fetch + 일시 장애 재시도. 실패 시 상태코드와 본문 앞부분을 담아 던진다. */
+async function fetchWithRetry(url, init, apiKey) {
+  let last = null;
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+    let retriable = true;
+
+    try {
+      const res = await fetch(url, init);
+      if (res.ok) return res;
+
+      const body = shorten(redact(await res.text(), apiKey));
+      last = new Error(`HTTP ${res.status}${body ? ` \u2014 ${body}` : ''}`);
+      retriable = isTransient(res.status);
+    } catch (error) {
+      // fetch 자체가 터진 경우(네트워크). 재시도 대상으로 둔다.
+      last = error instanceof Error ? error : new Error(String(error));
+    }
+
+    if (!retriable) break;
+    if (attempt < MAX_ATTEMPTS) await sleep(800);
+  }
+
+  throw last;
+}
+
+// ==================================================================
 // 인증키 읽기
 // ------------------------------------------------------------------
 // Cloudflare Workers에서 시크릿을 읽는 경로가 두 가지다.
@@ -196,11 +252,14 @@ async function fetchWithStrategy(strategy, apiKey) {
       url.searchParams.set(k, v);
     }
 
-    const res = await fetch(url, {
-      headers: { Accept: 'application/json, text/xml;q=0.9' },
-      next: { revalidate: REVALIDATE_SECONDS },
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const res = await fetchWithRetry(
+      url,
+      {
+        headers: { Accept: 'application/json, text/xml;q=0.9' },
+        next: { revalidate: REVALIDATE_SECONDS },
+      },
+      apiKey,
+    );
 
     const payload = parseBody(await res.text());
     const pageRows = extractRows(payload);
@@ -252,11 +311,14 @@ async function fetchGyeonggi() {
 
   try {
     for (let page = 1; page <= GG_MAX_PAGES; page += 1) {
-      const res = await fetch(buildGgUrl(key, page), {
-        headers: { Accept: 'application/json' },
-        next: { revalidate: REVALIDATE_SECONDS },
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const res = await fetchWithRetry(
+        buildGgUrl(key, page),
+        {
+          headers: { Accept: 'application/json' },
+          next: { revalidate: REVALIDATE_SECONDS },
+        },
+        key,
+      );
 
       const { rows, code, message, total } = extractGgRows(JSON.parse(await res.text()));
 
