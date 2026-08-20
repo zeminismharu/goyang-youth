@@ -22,6 +22,8 @@ import {
   extractGgRows,
   ggRowToIntermediate,
   isGoyangRow,
+  isBlockedPage,
+  GG_HEADERS,
   GG_MAX_PAGES,
 } from '@/lib/ggSource';
 
@@ -360,7 +362,7 @@ async function fetchGyeonggi() {
       const res = await fetchWithRetry(
         buildGgUrl(key, page),
         {
-          headers: { Accept: 'application/json' },
+          headers: GG_HEADERS,
           next: { revalidate: REVALIDATE_SECONDS },
         },
         key,
@@ -375,7 +377,11 @@ async function fetchGyeonggi() {
         // JSON이 아니다. 대개 오류 안내 HTML이다. 내용을 그대로 사유에 담는다.
         const detail = describeNonJson(redact(text, key));
         console.error('[gg-api] JSON이 아닌 응답:', detail);
-        return { rows: [], scanned, reason: `JSON이 아닌 응답: ${detail}` };
+        // 인증키 문제와 방화벽 차단은 조치가 전혀 다르므로 구분해서 알린다.
+        const prefix = isBlockedPage(text)
+          ? '경기도 방화벽이 차단(인증키 문제 아님)'
+          : 'JSON이 아닌 응답';
+        return { rows: [], scanned, reason: `${prefix}: ${detail}` };
       }
 
       const { rows, code, message, total } = extractGgRows(payload);

@@ -37,6 +37,32 @@ const PAGE_SIZE = 1000;
 /** 최대 조회 페이지 */
 export const GG_MAX_PAGES = 5;
 
+/**
+ * 요청 헤더.
+ *
+ * ⚠️ 실측: 헤더 없이 부르면 경기도 WAF가 막는다.
+ *    "- 보안 정책에 의해 차단 되었습니다 - 자세한 사항은
+ *      사이버침해대응센터로 문의 바랍니다. ☎ 031-8008-4114"
+ *    Workers 의 fetch 는 User-Agent 를 기본으로 붙이지 않는데,
+ *    UA 없는 요청을 봇으로 보고 막는 국내 공공기관 WAF가 흔하다.
+ *    발급받은 정상 인증키로 공개 API를 부르는 것이므로 우회가 아니라
+ *    "브라우저와 같은 조건으로 부른다"는 뜻이다.
+ *    이래도 막히면 IP 기반 차단이고, 그건 코드로 못 푼다.
+ */
+export const GG_HEADERS = {
+  Accept: 'application/json, text/plain;q=0.9, */*;q=0.8',
+  'Accept-Language': 'ko-KR,ko;q=0.9',
+  'User-Agent':
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+  Referer: 'https://data.gg.go.kr/',
+};
+
+/** 응답이 WAF 차단 안내 페이지인가 */
+export function isBlockedPage(text) {
+  const t = String(text || '');
+  return /보안\s*정책에\s*의해\s*차단|사이버침해대응센터/.test(t);
+}
+
 export function buildGgUrl(apiKey, pIndex = 1) {
   const url = new URL(GG_ENDPOINT);
   url.searchParams.set('Key', apiKey); // [확정] 대문자 K + 소문자 ey
