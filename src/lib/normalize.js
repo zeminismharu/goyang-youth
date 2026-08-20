@@ -201,6 +201,78 @@ export function parsePeriod(text, now = new Date()) {
   return { start, end: toIso(year, endPart.m, endPart.d) };
 }
 
+
+// ==================================================================
+// 접수기간 추출 (실데이터를 보고 추가한 부분)
+// ------------------------------------------------------------------
+// ⚠️ 왜 필요한가
+// aplyBgngYmd / aplyEndYmd 가 "신청기간"이 아니라 "사업·행사 기간"인
+// 경우가 많다. 실제 사례:
+//   산림창업가 시너지캠프
+//     API 날짜   : 2026-09-03 ~ 2026-09-04  (캠프가 열리는 날)
+//     실제 접수  : 2026. 8. 10. ~ 8. 25.    (지원내용 본문에만 있음)
+// 이 앱의 존재 이유가 마감일이라 여기가 틀리면 앱이 거짓말을 한다.
+//
+// 그래서 본문에서 "접수기간/신청기간/모집기간" 뒤의 날짜를 먼저 찾고,
+// 없을 때만 API 날짜 필드를 쓴다.
+// ==================================================================
+
+/** '접수기간 :' 같은 라벨 뒤 80자를 잘라낸다 */
+const APPLY_LABEL = /(?:접수|신청|모집|공모|지원)\s*(?:기간|일정|기한)\s*[:：]?\s*([^\n]{0,80})/;
+
+/**
+ * 라벨 뒤 문자열에서 날짜들을 순서대로 뽑는다.
+ * "2026. 8. 10.(월) ~ 8. 25.(화)" 처럼 뒷 날짜에 연도가 없는 경우
+ * 앞 날짜의 연도를 물려준다.
+ *
+ * 라벨 뒤 좁은 구간만 보는 이유: 본문 전체를 훑으면 "연 1.5퍼센트"의
+ * 1.5 같은 값이 1월 5일로 잘못 잡힌다.
+ */
+function parseDatesInSlice(slice) {
+  const re = /(?:(20\d{2})\s*[.\-/년]\s*)?(\d{1,2})\s*[.\-/월]\s*(\d{1,2})/g;
+  const found = [];
+  let m;
+  while ((m = re.exec(slice)) !== null) {
+    const year = m[1] ? Number(m[1]) : null;
+    const month = Number(m[2]);
+    const day = Number(m[3]);
+    if (month < 1 || month > 12 || day < 1 || day > 31) continue;
+    found.push({ year, month, day });
+  }
+  if (found.length === 0) return { start: null, end: null };
+
+  // 연도가 빠진 항목은 가장 가까운 앞쪽 연도를 물려받는다
+  let carried = found.find((f) => f.year)?.year ?? null;
+  if (!carried) return { start: null, end: null };
+  for (const f of found) {
+    if (f.year) carried = f.year;
+    else f.year = carried;
+  }
+
+  const iso = found.map((f) => toIso(f.year, f.month, f.day));
+  return { start: iso[0], end: iso.length > 1 ? iso[1] : null };
+}
+
+/** 본문에서 접수기간을 찾는다. 못 찾으면 둘 다 null. */
+export function extractApplyPeriod(text) {
+  const raw = String(text || '');
+  const m = APPLY_LABEL.exec(raw);
+  if (!m) return { start: null, end: null };
+  return parseDatesInSlice(m[1]);
+}
+
+/**
+ * API 날짜가 "신청 마감일"이 아니라 사업기간으로 보이는지.
+ * 회계연도 전체(1/1~12/31)이거나 300일을 넘는 구간이면 마감일로 볼 수 없다.
+ * 이런 값에 D-day를 붙이면 의미 없는 숫자가 나온다.
+ */
+export function looksLikeProgramPeriod(start, end) {
+  if (!start || !end) return false;
+  if (/-01-01$/.test(start) && /-12-31$/.test(end)) return true;
+  const days = (new Date(end).getTime() - new Date(start).getTime()) / 86400000;
+  return days > 300;
+}
+
 // ==================================================================
 // 카테고리
 // ------------------------------------------------------------------
@@ -344,8 +416,20 @@ export function normalizePolicy(row, index = 0, now = new Date()) {
   const region = resolveRegion(row, haystack);
   if (!region) return null;
 
-  let start = toIsoDate(pick(row, F.startDate));
-  let end = toIsoDate(pick(row, F.endDate));
+  // 1순위: 본문에 명시된 접수기간 (API 날짜가 사업기간인 경우가 많다)
+  let { start, end } = extractApplyPeriod(`${benefit}\n${summary}`);
+
+  // 2순위: API의 날짜 필드. 단 회계연도성 구간이면 마감일이 아니므로 버린다.
+  if (!start && !end) {
+    const apiStart = toIsoDate(pick(row, F.startDate));
+    const apiEnd = toIsoDate(pick(row, F.endDate));
+    if (!looksLikeProgramPeriod(apiStart, apiEnd)) {
+      start = apiStart;
+      end = apiEnd;
+    }
+  }
+
+  // 3순위: 자유 텍스트 기간 필드 (구버전 XML 경로)
   if (!start && !end) {
     const parsed = parsePeriod(pick(row, F.periodText), now);
     start = parsed.start;
