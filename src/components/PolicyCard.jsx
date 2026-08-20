@@ -79,7 +79,7 @@ export default function PolicyCard({ policy, now, bookmarked, onToggleBookmark, 
       {/* 메타 정보 — 아이콘 포함 전부 회색조 */}
       <dl className="mt-3 space-y-1 text-xs text-neutral-500">
         <div className="flex items-center gap-1.5">
-          <dt className="sr-only">지역</dt>
+          <dt className="sr-only">운영주체</dt>
           <MapPin size={13} aria-hidden="true" className="shrink-0" />
           <dd>{policy.region}</dd>
         </div>

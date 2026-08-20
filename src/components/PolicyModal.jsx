@@ -108,7 +108,7 @@ export default function PolicyModal({ policy, now, bookmarked, onToggleBookmark,
             <Row label="담당 부서" icon={<Building2 size={14} aria-hidden="true" />}>
               {policy.agency}
             </Row>
-            <Row label="지역" icon={<MapPin size={14} aria-hidden="true" />}>
+            <Row label="운영주체" icon={<MapPin size={14} aria-hidden="true" />}>
               {policy.region}
             </Row>
           </dl>

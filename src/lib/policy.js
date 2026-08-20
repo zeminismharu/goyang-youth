@@ -9,7 +9,7 @@
  *   id:       string   // 고유 식별자 (온통청년 bizId 등)
  *   title:    string   // 정책명
  *   category: string   // CATEGORIES 중 하나 ('취업' | '주거' | '금융' | '복지' | '교육·문화')
- *   region:   string   // REGIONS 중 하나 ('덕양구' | '일산동구' | '일산서구' | '고양시 전역')
+ *   region:   string   // 운영주체. REGIONS 중 하나 ('고양시' | '경기도' | '중앙부처')
  *   summary:  string   // 한 줄 요약
  *   target:   string   // 지원 대상
  *   benefit:  string   // 지원 내용
@@ -24,10 +24,28 @@
 export const CATEGORIES = ['취업', '주거', '금융', '복지', '교육·문화'];
 export const CATEGORY_FILTERS = ['전체', ...CATEGORIES];
 
-/** 지역 필터 목록. 고양시 전역 정책은 어떤 구를 골라도 함께 보이도록 처리한다. */
-export const REGIONS = ['덕양구', '일산동구', '일산서구'];
+/**
+ * 운영주체 필터 목록.
+ *
+ * ⚠️ 실데이터를 보고 바꾼 축이다.
+ * 원래는 덕양구/일산동구/일산서구였는데, 온통청년 API에서 받은 339건이
+ * 사실상 전부 '고양시 전역'으로 잡혔다. 이 API의 지역코드는 "이 정책을
+ * 신청할 수 있는 지역"이라 전국 정책이면 고양시가 당연히 포함되고,
+ * 정작 고양시청이 만든 정책은 거의 등록돼 있지 않다.
+ * 구 단위 필터는 눌러도 결과가 바뀌지 않아 쓸모가 없었다.
+ *
+ * 그래서 "어디가 운영하는 정책인가"로 축을 바꿨다.
+ * 가까운 순서로 둔다: 고양시 → 경기도 → 중앙부처
+ */
+export const REGIONS = ['고양시', '경기도', '중앙부처'];
 export const REGION_FILTERS = ['전체', ...REGIONS];
-export const REGION_ALL = '고양시 전역';
+
+/** 고양시가 직접 운영하는 정책 */
+export const LEVEL_GOYANG = '고양시';
+/** 경기도 사업 (고양시 청년도 신청 가능) */
+export const LEVEL_GYEONGGI = '경기도';
+/** 중앙부처·공공기관 전국 사업 */
+export const LEVEL_CENTRAL = '중앙부처';
 
 /** 정렬 옵션 */
 export const SORT_OPTIONS = [
@@ -153,10 +171,10 @@ export function matchesQuery(policy, query) {
     .some((field) => String(field).toLowerCase().includes(q));
 }
 
-/** 지역 필터. '고양시 전역' 정책은 어떤 구를 골라도 노출한다. */
+/** 운영주체 필터. 정확히 일치하는 것만 남긴다. */
 export function matchesRegion(policy, region) {
   if (!region || region === '전체') return true;
-  return policy?.region === region || policy?.region === REGION_ALL;
+  return policy?.region === region;
 }
 
 /** 카테고리 필터 */

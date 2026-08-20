@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * 검색 · 카테고리 · 지역 · 정렬 · 관심만 보기
+ * 검색 · 카테고리 · 운영주체 · 정렬 · 관심만 보기
  * ------------------------------------------------------------------
  * 칩(chip)은 전부 회색조. 선택된 칩만 검정 배경.
  * '관심만 보기'는 관심저장 기능이라 활성 시 빨강을 허용한다.
@@ -90,7 +90,7 @@ export default function FilterBar({
 
       {/* 지역 */}
       <div>
-        <h2 className="sr-only">지역 필터</h2>
+        <h2 className="sr-only">운영주체 필터</h2>
         <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1">
           {REGION_FILTERS.map((item) => (
             <Chip key={item} active={region === item} onClick={() => onRegionChange(item)}>

@@ -19,7 +19,7 @@
  * 이 파일은 양쪽 응답 모양을 모두 받아낼 수 있게 되어 있다.
  */
 
-import { REGION_ALL } from './policy';
+import { LEVEL_CENTRAL, LEVEL_GOYANG, LEVEL_GYEONGGI } from './policy';
 
 // ==================================================================
 // 지역 코드
@@ -34,10 +34,10 @@ export const GYEONGGI_SIDO_CODE = '003002008';
  * 재확인하면 좋다.
  */
 export const ZIP_TO_REGION = {
-  41280: REGION_ALL, // 고양시 전체
-  41281: '덕양구',
-  41285: '일산동구',
-  41287: '일산서구',
+  41280: '고양시', // 시 전체
+  41281: '고양시 덕양구',
+  41285: '고양시 일산동구',
+  41287: '고양시 일산서구',
 };
 
 export const GOYANG_ZIP_CODES = Object.keys(ZIP_TO_REGION);
@@ -51,13 +51,6 @@ export const GOYANG_ZIP_CODES = Object.keys(ZIP_TO_REGION);
  * 그래서 '일산'은 반드시 구 이름(일산동구/일산서구)일 때만 인정하고,
  * 그 외에는 '고양'이 있어야 한다. '고양이'는 제외한다.
  */
-const GOYANG_PATTERNS = [
-  { pattern: /덕양구/, region: '덕양구' },
-  { pattern: /일산동구/, region: '일산동구' },
-  { pattern: /일산서구/, region: '일산서구' },
-  { pattern: /고양시|고양(?!이)/, region: REGION_ALL },
-];
-
 /** 고양시를 명시적으로 가리키는가 */
 export function mentionsGoyang(text) {
   return /고양시|고양(?!이)|덕양구|일산동구|일산서구/.test(String(text || ''));
@@ -87,13 +80,9 @@ export function mentionsOtherLocality(text) {
   return OTHER_LOCALITIES.some((name) => t.includes(name));
 }
 
-/** 텍스트에서 고양시 여부·구를 판정한다. 무관하면 null. */
+/** 텍스트가 고양시를 가리키면 '고양시', 아니면 null */
 export function detectGoyangRegion(text) {
-  if (!text) return null;
-  for (const { pattern, region } of GOYANG_PATTERNS) {
-    if (pattern.test(text)) return region;
-  }
-  return null;
+  return mentionsGoyang(text) ? LEVEL_GOYANG : null;
 }
 
 // ==================================================================
@@ -320,50 +309,38 @@ export function resolveCategory(row, text) {
 // ==================================================================
 
 /**
- * 지역 판정.
+ * 운영주체 판정 — 이 정책을 누가 운영하는가.
  *
- * ⚠️ 실제 응답을 보고 고친 부분이다.
- * 신버전 API의 zipCd 에는 그 정책이 적용되는 시군구 코드가 "여러 개"
- * 들어온다. 전국 사업이면 전국 시군구 코드가 전부 들어있다.
- * 그래서 "고양시 코드가 하나라도 있으면 그 구"라고 단정하면
- * 산림청 전국 사업이 '덕양구' 정책으로 둔갑한다.
+ * 담당기관명이 가장 확실한 신호다.
+ *   '고양시 일자리정책과'            → 고양시
+ *   '경기도 미래평생교육국 청년기회과' → 경기도
+ *   '고용노동부', '한국고용정보원'    → 중앙부처
  *
- * 규칙
- *   - 41280(고양시 전체)이 있으면 → 고양시 전역
- *   - 코드 목록이 짧고(고양시 한정으로 보이고) 특정 구 하나만 있으면 → 그 구
- *   - 그 외(전국·광역 사업) → 고양시 전역
- *   - 코드가 아예 없으면 텍스트로 판정 (구버전 경로)
+ * 기관명으로 판단이 안 되면 본문의 고양시 언급을 본다.
+ * 여기서 null을 반환하면 목록에서 제외된다.
  */
-const BROAD_CODE_THRESHOLD = 5;
-
 export function resolveRegion(row, text) {
-  const raw = pick(row, F.zipCode);
+  // 다른 소스(경기데이터드림)가 운영주체를 이미 알고 넘겨준 경우
+  if (row?.__level) return row.__level;
 
-  if (raw) {
-    const codes = raw
-      .split(/[,\s|]+/)
-      .map((c) => c.trim().slice(0, 5))
-      .filter(Boolean);
+  const agency = pick(row, F.agency);
+  const zip = pick(row, F.zipCode);
 
-    const goyang = codes.filter((c) => ZIP_TO_REGION[c]);
-    if (goyang.length > 0) {
-      // 시 전체 코드가 있으면 구를 특정하지 않는다
-      if (goyang.includes('41280')) return REGION_ALL;
-      // 전국·광역 사업이면 구를 특정할 수 없다
-      if (codes.length > BROAD_CODE_THRESHOLD) return REGION_ALL;
-      // 고양시 구가 여러 개면 시 전역으로 본다
-      const districts = [...new Set(goyang.map((c) => ZIP_TO_REGION[c]))];
-      return districts.length === 1 ? districts[0] : REGION_ALL;
-    }
-
-    // 코드는 있는데 고양시가 없다 → 고양시 정책이 아니다.
-    // 예전에는 여기서 텍스트로 한 번 더 봤는데, 그 탓에 울산 '일산해수욕장'
-    // 행사가 통과했다. 지역코드가 있으면 그 코드를 믿는다.
-    return null;
+  // 지역코드가 있는데 고양시 코드가 없으면 고양시 청년 대상이 아니다.
+  // (텍스트로 한 번 더 보던 예전 방식은 울산 '일산해수욕장'을 통과시켰다.)
+  if (zip) {
+    const codes = zip.split(/[,\s|]+/).map((c) => c.trim().slice(0, 5));
+    if (!codes.some((c) => ZIP_TO_REGION[c])) return null;
   }
 
-  // 지역코드가 아예 없을 때만 텍스트로 판정한다 (구버전 XML 경로)
-  return detectGoyangRegion(text);
+  if (mentionsGoyang(agency)) return LEVEL_GOYANG;
+  if (/경기도|경기\s*청년|경기도일자리재단|경기연구원/.test(agency)) return LEVEL_GYEONGGI;
+
+  // 기관명이 비었을 때만 본문을 본다
+  if (!agency && mentionsGoyang(text)) return LEVEL_GOYANG;
+
+  // 지역코드가 고양시를 포함하거나 아예 없으면 전국 사업으로 본다
+  return LEVEL_CENTRAL;
 }
 
 /**

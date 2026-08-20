@@ -17,6 +17,12 @@ import {
   GYEONGGI_SIDO_CODE,
   GOYANG_ZIP_CODES,
 } from '@/lib/normalize';
+import {
+  buildGgUrl,
+  extractGgRows,
+  ggRowToIntermediate,
+  ggServiceCandidates,
+} from '@/lib/ggSource';
 
 /**
  * 요청마다 실행한다. 정적으로 굳히면 배포 후 인증키를 넣어도
@@ -230,6 +236,57 @@ async function fetchWithStrategy(strategy, apiKey) {
   return rows;
 }
 
+
+/**
+ * 경기데이터드림에서 고양시 정책을 가져온다.
+ * 키가 없거나 실패하면 조용히 빈 배열을 반환한다. 이 소스는 보조라서
+ * 실패해도 온통청년 결과만으로 화면이 정상 동작해야 한다.
+ */
+async function fetchGyeonggi() {
+  const key = String(process.env.GG_API_KEY || '').trim();
+  if (!key) return { rows: [], service: null, reason: 'GG_API_KEY 없음' };
+
+  for (const service of ggServiceCandidates()) {
+    try {
+      const res = await fetch(buildGgUrl(service, key, 1), {
+        headers: { Accept: 'application/json' },
+        next: { revalidate: REVALIDATE_SECONDS },
+      });
+      if (!res.ok) continue;
+
+      const text = await res.text();
+      const payload = text.trim().startsWith('{') ? JSON.parse(text) : parser.parse(text);
+      const rows = extractGgRows(payload);
+
+      console.log(`[gg-api][${service}] 행 ${rows.length}건`);
+      if (rows.length === 0) {
+        console.log(`[gg-api][${service}] 응답 구조:`, JSON.stringify(payload).slice(0, 800));
+        continue;
+      }
+      console.log(`[gg-api][${service}] 항목 키:`, Object.keys(rows[0] || {}));
+
+      const mapped = rows.map((r, i) => ggRowToIntermediate(r, i)).filter(Boolean);
+      return { rows: mapped, service, reason: null };
+    } catch (error) {
+      console.error(`[gg-api][${service}] 실패:`, error?.message);
+    }
+  }
+  return { rows: [], service: null, reason: '경기데이터드림 서비스명 후보를 모두 시도했으나 실패' };
+}
+
+/** 제목이 같은 정책은 하나만 남긴다. 앞쪽(고양시·경기도)을 우선한다. */
+function dedupeByTitle(policies) {
+  const seen = new Set();
+  const out = [];
+  for (const p of policies) {
+    const key = String(p.title).replace(/\s+/g, '').toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(p);
+  }
+  return out;
+}
+
 export async function GET(request) {
   // ?debug=1 — 실제 응답의 필드명과 단계별 필터 결과를 그대로 보여준다.
   // 추측으로 필터를 손보지 않기 위한 장치다. 인증키는 담기지 않는다.
@@ -275,8 +332,15 @@ export async function GET(request) {
         );
       }
 
-      const policies = normalizePolicies(rows);
-      console.log(`[youth-api][${strategy.name}] 원본 ${rows.length}건 → 고양시 ${policies.length}건`);
+      const youthPolicies = normalizePolicies(rows);
+      console.log(`[youth-api][${strategy.name}] 원본 ${rows.length}건 → 고양시 ${youthPolicies.length}건`);
+
+      // 보조 소스: 경기데이터드림(잡아바)의 고양시 정책을 합친다.
+      // 고양시·경기도 정책을 앞에 두어 중복 시 이쪽이 살아남게 한다.
+      const gg = await fetchGyeonggi();
+      const ggPolicies = normalizePolicies(gg.rows);
+      const policies = dedupeByTitle([...ggPolicies, ...youthPolicies]);
+      console.log(`[merge] 온통청년 ${youthPolicies.length} + 경기 ${ggPolicies.length} → ${policies.length}건`);
 
       if (policies.length === 0) {
         attempts.push(`${strategy.name}: 원본 ${rows.length}건 중 고양시 0건`);
@@ -290,6 +354,12 @@ export async function GET(request) {
         fetchedAt: new Date().toISOString(),
         total: policies.length,
         scanned: rows.length,
+        sources: {
+          온통청년: youthPolicies.length,
+          경기데이터드림: ggPolicies.length,
+          경기서비스명: gg.service,
+          경기미연동사유: gg.reason,
+        },
         policies,
       });
     } catch (error) {
