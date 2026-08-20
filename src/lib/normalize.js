@@ -65,8 +65,12 @@ export function mentionsGoyang(text) {
 
 /**
  * 다른 지자체 이름 목록.
- * 담당기관이 여기 해당하고 본문에 고양시 언급이 없으면 고양시 정책이 아니다.
- * (원본 데이터의 지역코드가 부정확한 경우가 있어 이 방어가 필요하다.)
+ *
+ * ⚠️ 판정 대상은 "정책명"이다. 담당기관명이 아니다.
+ * 처음에는 기관명으로 걸렀는데 위험했다. '서울대학교', '한국장학재단
+ * 대전지부' 같은 전국 사업 운영기관이 지역명에 걸려 조용히 사라진다.
+ * 반면 정책명에 지역이 박혀 있으면("울산 동구 청년의 날 기념행사")
+ * 그 지자체 전용 정책이라는 신호가 훨씬 분명하다.
  */
 const OTHER_LOCALITIES = [
   '서울', '부산', '대구', '인천', '광주', '대전', '울산', '세종',
@@ -332,9 +336,10 @@ export function normalizePolicy(row, index = 0, now = new Date()) {
   const haystack = `${title} ${summary} ${benefit} ${agency} ${target}`;
 
   // 원본의 지역코드가 부정확한 경우가 있다. 실제로 울산 동구 행사가
-  // 고양시 대상으로 섞여 들어왔다. 고양시를 명시하지 않으면서 담당기관이
-  // 다른 지자체면 제외한다. 중앙부처·경기도 정책은 기관명이 걸리지 않아 남는다.
-  if (!mentionsGoyang(haystack) && mentionsOtherLocality(agency)) return null;
+  // 고양시 대상으로 섞여 들어왔다.
+  // 정책명에 다른 지자체가 박혀 있고 고양시 언급이 없으면 그 지자체 전용
+  // 정책으로 본다. 중앙부처·경기도 정책은 정책명에 지역이 없어 남는다.
+  if (!mentionsGoyang(haystack) && mentionsOtherLocality(title)) return null;
 
   const region = resolveRegion(row, haystack);
   if (!region) return null;
@@ -379,3 +384,74 @@ export function normalizePolicies(rows, now = new Date()) {
 }
 
 export default normalizePolicies;
+
+// ==================================================================
+// 진단
+// ------------------------------------------------------------------
+// 실제 응답을 보지 않고 필터를 손보는 것은 추측일 뿐이다.
+// route.js 의 ?debug=1 이 이 함수를 써서 어느 단계에서 몇 건이
+// 걸러졌는지, 왜 걸러졌는지를 그대로 보여준다.
+// ==================================================================
+
+/** 행 하나가 왜 통과/제외됐는지 설명한다 */
+export function explainRow(row, now = new Date()) {
+  const title = pick(row, F.title);
+  if (!title) return { title: '(제목 없음)', kept: false, reason: '정책명 필드를 찾지 못함' };
+
+  const summary = pick(row, F.summary);
+  const benefit = pick(row, F.benefit);
+  const agency = pick(row, F.agency);
+  const target = buildTarget(row);
+  const haystack = `${title} ${summary} ${benefit} ${agency} ${target}`;
+  const zip = pick(row, F.zipCode);
+
+  if (!mentionsGoyang(haystack) && mentionsOtherLocality(title)) {
+    return { title, agency, zip: zip.slice(0, 60), kept: false, reason: '정책명이 다른 지자체를 지칭' };
+  }
+
+  const region = resolveRegion(row, haystack);
+  if (!region) {
+    return {
+      title,
+      agency,
+      zip: zip.slice(0, 60),
+      kept: false,
+      reason: zip ? '지역코드에 고양시 코드 없음' : '지역코드 없고 본문에도 고양시 언급 없음',
+    };
+  }
+
+  return { title, agency, zip: zip.slice(0, 60), kept: true, region };
+}
+
+/** 응답 전체에 대한 단계별 통계와 표본 */
+export function diagnose(rows, now = new Date()) {
+  const explained = (rows || []).map((r) => explainRow(r, now));
+  const kept = explained.filter((e) => e.kept);
+  const dropped = explained.filter((e) => !e.kept);
+
+  const byReason = {};
+  for (const d of dropped) byReason[d.reason] = (byReason[d.reason] || 0) + 1;
+
+  // 지역코드가 실제로 필터링되고 있는지 확인용
+  const zipStats = { 있음: 0, 없음: 0, 고양시코드포함: 0 };
+  for (const row of rows || []) {
+    const zip = pick(row, F.zipCode);
+    if (!zip) {
+      zipStats.없음 += 1;
+      continue;
+    }
+    zipStats.있음 += 1;
+    const codes = zip.split(/[,\s|]+/).map((c) => c.trim().slice(0, 5));
+    if (codes.some((c) => ZIP_TO_REGION[c])) zipStats.고양시코드포함 += 1;
+  }
+
+  return {
+    원본건수: (rows || []).length,
+    통과: kept.length,
+    제외: dropped.length,
+    제외사유별: byReason,
+    지역코드통계: zipStats,
+    통과표본: kept.slice(0, 10).map((e) => `[${e.region}] ${e.title} — ${e.agency}`),
+    제외표본: dropped.slice(0, 15).map((e) => `(${e.reason}) ${e.title} — ${e.agency} — zip:${e.zip}`),
+  };
+}

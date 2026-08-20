@@ -11,7 +11,12 @@
 
 import { XMLParser } from 'fast-xml-parser';
 import { mockPolicies, MOCK_NOTICE } from '@/lib/mockPolicies';
-import { normalizePolicies, GYEONGGI_SIDO_CODE, GOYANG_ZIP_CODES } from '@/lib/normalize';
+import {
+  normalizePolicies,
+  diagnose,
+  GYEONGGI_SIDO_CODE,
+  GOYANG_ZIP_CODES,
+} from '@/lib/normalize';
 
 /**
  * 요청마다 실행한다. 정적으로 굳히면 배포 후 인증키를 넣어도
@@ -225,7 +230,11 @@ async function fetchWithStrategy(strategy, apiKey) {
   return rows;
 }
 
-export async function GET() {
+export async function GET(request) {
+  // ?debug=1 — 실제 응답의 필드명과 단계별 필터 결과를 그대로 보여준다.
+  // 추측으로 필터를 손보지 않기 위한 장치다. 인증키는 담기지 않는다.
+  const debug = new URL(request.url).searchParams.get('debug') === '1';
+
   const { key: apiKey, via } = await resolveApiKey();
 
   if (!apiKey) {
@@ -249,6 +258,21 @@ export async function GET() {
       if (rows.length === 0) {
         attempts.push(`${strategy.name}: 응답은 왔지만 정책 0건`);
         continue;
+      }
+
+      if (debug) {
+        const first = rows[0] || {};
+        return Response.json(
+          {
+            debug: true,
+            strategy: strategy.name,
+            인증키경로: via,
+            응답필드명: Object.keys(first),
+            첫항목원본: first,
+            진단: diagnose(rows),
+          },
+          { headers: { 'Cache-Control': 'no-store' } },
+        );
       }
 
       const policies = normalizePolicies(rows);
