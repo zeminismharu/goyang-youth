@@ -24,6 +24,7 @@ import {
   matchesCategory,
   matchesQuery,
   matchesRegion,
+  statusOf,
 } from '@/lib/policy';
 
 export default function Home() {
@@ -37,6 +38,9 @@ export default function Home() {
   const [region, setRegion] = useState('전체');
   const [sort, setSort] = useState('deadline'); // 기본값: 마감임박순
   const [bookmarkOnly, setBookmarkOnly] = useState(false);
+  // 접수마감된 정책은 기본으로 숨긴다. 이 앱의 임무는 "지금 신청할 수 있는" 것이라
+  // 이미 끝난 공고가 목록을 채우면 방해가 된다.
+  const [showClosed, setShowClosed] = useState(false);
   const [selected, setSelected] = useState(null);
 
   const bookmarks = useBookmarks();
@@ -68,8 +72,8 @@ export default function Home() {
     };
   }, []);
 
-  const visible = useMemo(() => {
-    const filtered = policies.filter(
+  const { visible, hiddenClosedCount } = useMemo(() => {
+    const matched = policies.filter(
       (policy) =>
         matchesQuery(policy, query) &&
         matchesCategory(policy, category) &&
@@ -77,10 +81,16 @@ export default function Home() {
         (!bookmarkOnly || bookmarks.has(policy.id)),
     );
 
-    const sorted = [...filtered];
+    const closedCount = matched.filter((p) => statusOf(p, now).kind === 'closed').length;
+    const list = showClosed
+      ? matched
+      : matched.filter((p) => statusOf(p, now).kind !== 'closed');
+
+    const sorted = [...list];
     sorted.sort(sort === 'latest' ? compareByLatest : (a, b) => compareByDeadline(a, b, now));
-    return sorted;
-  }, [policies, query, category, region, bookmarkOnly, bookmarks, sort, now]);
+
+    return { visible: sorted, hiddenClosedCount: showClosed ? 0 : closedCount };
+  }, [policies, query, category, region, bookmarkOnly, bookmarks, sort, now, showClosed]);
 
   // 요약은 필터와 무관하게 "전체" 기준으로 보여준다.
   const urgentCount = useMemo(
@@ -125,6 +135,8 @@ export default function Home() {
             onSortChange={setSort}
             bookmarkOnly={bookmarkOnly}
             onBookmarkOnlyChange={setBookmarkOnly}
+            showClosed={showClosed}
+            onShowClosedChange={setShowClosed}
           />
         </div>
 
@@ -132,6 +144,9 @@ export default function Home() {
         {!loading && !error && (
           <p className="mb-2 text-xs text-neutral-500" aria-live="polite">
             {visible.length}건
+            {hiddenClosedCount > 0 && (
+              <span className="text-neutral-400"> · 접수마감 {hiddenClosedCount}건 숨김</span>
+            )}
           </p>
         )}
 

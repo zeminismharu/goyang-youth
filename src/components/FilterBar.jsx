@@ -7,7 +7,7 @@
  * '관심만 보기'는 관심저장 기능이라 활성 시 빨강을 허용한다.
  */
 
-import { Bookmark, Search, X } from 'lucide-react';
+import { Archive, Bookmark, Search, X } from 'lucide-react';
 import { CATEGORY_FILTERS, REGION_FILTERS, SORT_OPTIONS } from '@/lib/policy';
 
 function Chip({ active, children, ...props }) {
@@ -40,6 +40,8 @@ export default function FilterBar({
   onSortChange,
   bookmarkOnly,
   onBookmarkOnlyChange,
+  showClosed,
+  onShowClosedChange,
 }) {
   return (
     <div className="space-y-3">
@@ -98,7 +100,7 @@ export default function FilterBar({
         </div>
       </div>
 
-      {/* 정렬 + 관심만 보기 */}
+      {/* 정렬 + 토글들 */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <label htmlFor="sort" className="text-xs font-medium text-neutral-500">
@@ -118,25 +120,45 @@ export default function FilterBar({
           </select>
         </div>
 
-        <button
-          type="button"
-          onClick={() => onBookmarkOnlyChange(!bookmarkOnly)}
-          aria-pressed={bookmarkOnly}
-          className={[
-            'inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition',
-            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2',
-            bookmarkOnly
-              ? 'border-red-600 bg-white text-red-600 focus-visible:ring-red-600'
-              : 'border-neutral-300 bg-white text-neutral-600 hover:border-neutral-500 hover:text-neutral-900 focus-visible:ring-neutral-900',
-          ].join(' ')}
-        >
-          <Bookmark
-            size={15}
-            fill={bookmarkOnly ? 'currentColor' : 'none'}
-            aria-hidden="true"
-          />
-          관심만 보기
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {/* 접수마감 포함 — 기본은 꺼짐(마감된 공고는 숨김). 회색조로만. */}
+          <button
+            type="button"
+            onClick={() => onShowClosedChange(!showClosed)}
+            aria-pressed={showClosed}
+            title="이미 마감된 공고도 함께 보기"
+            className={[
+              'inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900 focus-visible:ring-offset-2',
+              showClosed
+                ? 'border-neutral-900 bg-neutral-900 text-white'
+                : 'border-neutral-300 bg-white text-neutral-600 hover:border-neutral-500 hover:text-neutral-900',
+            ].join(' ')}
+          >
+            <Archive size={15} aria-hidden="true" />
+            접수마감 포함
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onBookmarkOnlyChange(!bookmarkOnly)}
+            aria-pressed={bookmarkOnly}
+            className={[
+              'inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2',
+              bookmarkOnly
+                ? 'border-red-600 bg-white text-red-600 focus-visible:ring-red-600'
+                : 'border-neutral-300 bg-white text-neutral-600 hover:border-neutral-500 hover:text-neutral-900 focus-visible:ring-neutral-900',
+            ].join(' ')}
+          >
+            <Bookmark
+              size={15}
+              fill={bookmarkOnly ? 'currentColor' : 'none'}
+              aria-hidden="true"
+            />
+            관심만 보기
+          </button>
+        </div>
       </div>
     </div>
   );
