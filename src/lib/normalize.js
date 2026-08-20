@@ -42,14 +42,46 @@ export const ZIP_TO_REGION = {
 
 export const GOYANG_ZIP_CODES = Object.keys(ZIP_TO_REGION);
 
-/** 고양시 판정 키워드. 지역코드가 없거나 광역 단위일 때 쓰는 폴백. */
+/**
+ * 고양시 판정 키워드.
+ *
+ * ⚠️ 실데이터에서 오탐이 나와 강화한 부분이다.
+ * 예전에는 /일산/ 만으로 매칭했는데, 울산 동구의 "일산해수욕장"이 걸려서
+ * 울산 행사가 고양시 정책으로 올라왔다.
+ * 그래서 '일산'은 반드시 구 이름(일산동구/일산서구)일 때만 인정하고,
+ * 그 외에는 '고양'이 있어야 한다. '고양이'는 제외한다.
+ */
 const GOYANG_PATTERNS = [
-  { pattern: /덕양/, region: '덕양구' },
-  { pattern: /일산동구|일산\s*동/, region: '일산동구' },
-  { pattern: /일산서구|일산\s*서/, region: '일산서구' },
-  { pattern: /일산/, region: REGION_ALL },
-  { pattern: /고양/, region: REGION_ALL },
+  { pattern: /덕양구/, region: '덕양구' },
+  { pattern: /일산동구/, region: '일산동구' },
+  { pattern: /일산서구/, region: '일산서구' },
+  { pattern: /고양시|고양(?!이)/, region: REGION_ALL },
 ];
+
+/** 고양시를 명시적으로 가리키는가 */
+export function mentionsGoyang(text) {
+  return /고양시|고양(?!이)|덕양구|일산동구|일산서구/.test(String(text || ''));
+}
+
+/**
+ * 다른 지자체 이름 목록.
+ * 담당기관이 여기 해당하고 본문에 고양시 언급이 없으면 고양시 정책이 아니다.
+ * (원본 데이터의 지역코드가 부정확한 경우가 있어 이 방어가 필요하다.)
+ */
+const OTHER_LOCALITIES = [
+  '서울', '부산', '대구', '인천', '광주', '대전', '울산', '세종',
+  '강원', '충북', '충남', '전북', '전남', '경북', '경남', '제주',
+  '충청', '전라', '경상',
+  '수원', '성남', '의정부', '안양', '부천', '광명', '평택', '동두천',
+  '안산', '과천', '구리', '남양주', '오산', '시흥', '군포', '의왕',
+  '하남', '용인', '파주', '이천', '안성', '김포', '화성', '양주',
+  '포천', '여주', '연천', '가평', '양평',
+];
+
+export function mentionsOtherLocality(text) {
+  const t = String(text || '');
+  return OTHER_LOCALITIES.some((name) => t.includes(name));
+}
 
 /** 텍스트에서 고양시 여부·구를 판정한다. 무관하면 null. */
 export function detectGoyangRegion(text) {
@@ -248,10 +280,13 @@ export function resolveRegion(row, text) {
       return districts.length === 1 ? districts[0] : REGION_ALL;
     }
 
-    // 코드는 있는데 고양시가 없다 → 텍스트로 한 번 더 본다
-    return detectGoyangRegion(text);
+    // 코드는 있는데 고양시가 없다 → 고양시 정책이 아니다.
+    // 예전에는 여기서 텍스트로 한 번 더 봤는데, 그 탓에 울산 '일산해수욕장'
+    // 행사가 통과했다. 지역코드가 있으면 그 코드를 믿는다.
+    return null;
   }
 
+  // 지역코드가 아예 없을 때만 텍스트로 판정한다 (구버전 XML 경로)
   return detectGoyangRegion(text);
 }
 
@@ -295,6 +330,12 @@ export function normalizePolicy(row, index = 0, now = new Date()) {
   const target = buildTarget(row);
 
   const haystack = `${title} ${summary} ${benefit} ${agency} ${target}`;
+
+  // 원본의 지역코드가 부정확한 경우가 있다. 실제로 울산 동구 행사가
+  // 고양시 대상으로 섞여 들어왔다. 고양시를 명시하지 않으면서 담당기관이
+  // 다른 지자체면 제외한다. 중앙부처·경기도 정책은 기관명이 걸리지 않아 남는다.
+  if (!mentionsGoyang(haystack) && mentionsOtherLocality(agency)) return null;
+
   const region = resolveRegion(row, haystack);
   if (!region) return null;
 
