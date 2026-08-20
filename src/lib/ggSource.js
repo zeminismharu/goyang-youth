@@ -80,6 +80,23 @@ const val = (row, key) => {
   return v === undefined || v === null ? '' : String(v).trim();
 };
 
+/** "2026-08-10" → "20260810". 8자리가 아니면 버린다(지어내지 않는다). */
+function toYmd(value) {
+  const digits = String(value || '').replace(/\D/g, '');
+  return digits.length === 8 ? digits : '';
+}
+
+/**
+ * 모집시작일·종료일을 온통청년의 aplyYmd 모양("20260810 ~ 20260825")으로
+ * 합친다. normalize.js 의 기간 파서가 이 형식을 읽는다.
+ */
+function toAplyYmd(begin, end) {
+  const b = toYmd(begin);
+  const e = toYmd(end);
+  if (b && e) return `${b} ~ ${e}`;
+  return b || e || '';
+}
+
 /**
  * 고양시 청년이 신청할 수 있는 행인가.
  * 고양시 정책은 물론, 경기도 전역 사업도 포함한다.
@@ -112,8 +129,11 @@ export function ggRowToIntermediate(row, index = 0) {
     // 어디서 확인해야 하는지만 알린다.
     plcyExplnCn: regionNm ? `${regionNm} · ${val(row, 'DIV_NM')}`.replace(/ · $/, '') : '',
     plcySprtCn: '',
-    aplyBgngYmd: val(row, 'RECRUT_BEGIN_DE'),
-    aplyEndYmd: val(row, 'RECRUT_END_DE'),
+    // ⚠️ aplyBgngYmd / aplyEndYmd 로 넘기면 안 된다.
+    //    온통청년 실물을 확인한 뒤 normalize.js 가 그 필드를 읽지 않도록
+    //    바꿨다(실제 신청기간 필드는 aplyYmd 문자열). 여기서 같은 모양으로
+    //    맞춰 보내야 경기 정책도 D-day가 붙는다.
+    aplyYmd: toAplyYmd(val(row, 'RECRUT_BEGIN_DE'), val(row, 'RECRUT_END_DE')),
     rgtrInstCdNm: inst || '경기도',
     aplyUrlAddr: detailUrl,
     lclsfNm: val(row, 'DIV_NM'),

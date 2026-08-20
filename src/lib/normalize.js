@@ -399,9 +399,21 @@ function buildTarget(row) {
   return parts.length > 0 ? parts.join(' / ') : '공고 본문 확인 필요';
 }
 
-/** 담당기관이 경기도 본청(시군이 아닌)인가 */
+/**
+ * 담당기관이 경기도 본청 또는 도 산하기관인가.
+ *
+ * ⚠️ 예전에는 /^경기도(\s|$)/ 로 봤는데 '경기도일자리재단'이 걸리지
+ *    않아 도(道) 사업이 '다른 지자체'로 잘못 제외됐다. 경기도 사업은
+ *    고양시 청년도 신청할 수 있으므로 반드시 남아야 한다.
+ *
+ * 이름에 '경기'가 있으면 도 소속으로 보되, '경기도 수원시청'처럼
+ * 시·군·구청이 함께 적혀 있으면 그 시군의 정책이므로 제외한다.
+ * ('경기도청'은 도청이라 여기 걸리지 않는다.)
+ */
 function isGyeonggiAgency(agency) {
-  return /^경기도(\s|$)/.test(String(agency || '').trim());
+  const a = String(agency || '').trim();
+  if (!/경기/.test(a)) return false;
+  return !/[가-힣]{2,5}(시청|군청|구청)/.test(a);
 }
 
 /**

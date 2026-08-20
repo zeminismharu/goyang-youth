@@ -147,6 +147,19 @@ function shorten(text) {
   return String(text || '').replace(/\s+/g, ' ').trim().slice(0, 200);
 }
 
+/**
+ * JSON이 아닌 응답에서 사람이 읽을 부분만 뽑는다.
+ * 경기데이터드림이 오류를 HTTP 200 + 안내 HTML로 돌려주는 경우가 있는데,
+ * 그때 JSON.parse 예외("Unexpected token '<'")만 남으면 원인을 알 수 없다.
+ */
+function describeNonJson(text) {
+  const stripped = String(text)
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ');
+  return shorten(stripped) || shorten(text);
+}
+
 /** fetch + 일시 장애 재시도. 실패 시 상태코드와 본문 앞부분을 담아 던진다. */
 async function fetchWithRetry(url, init, apiKey) {
   let last = null;
@@ -320,7 +333,19 @@ async function fetchGyeonggi() {
         key,
       );
 
-      const { rows, code, message, total } = extractGgRows(JSON.parse(await res.text()));
+      const text = await res.text();
+
+      let payload;
+      try {
+        payload = JSON.parse(text);
+      } catch {
+        // JSON이 아니다. 대개 오류 안내 HTML이다. 내용을 그대로 사유에 담는다.
+        const detail = describeNonJson(redact(text, key));
+        console.error('[gg-api] JSON이 아닌 응답:', detail);
+        return { rows: [], scanned, reason: `JSON이 아닌 응답: ${detail}` };
+      }
+
+      const { rows, code, message, total } = extractGgRows(payload);
 
       if (page === 1) {
         console.log(`[gg-api] 결과코드 ${code} / ${message} / 전체 ${total}건`);
