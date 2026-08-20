@@ -2,103 +2,107 @@
  * /api/policies — 정책 목록 서버 프록시
  * ==================================================================
  * 이 라우트가 존재하는 이유는 하나, "인증키를 브라우저에 노출하지 않기".
- * 브라우저는 이 라우트만 호출하고, 온통청년 API는 서버에서만 호출한다.
  *
- * 동작
- *   - YOUTH_API_KEY 없음 → 샘플 데이터 반환
- *   - 있음 → 온통청년 API 호출 → XML 파싱 → 고양시만 필터 → 반환
- *   - 실패/0건 → 샘플 데이터로 폴백 (화면이 비지 않게)
+ * ⚠️ 온통청년 API는 두 세대가 공존하고, 어느 쪽이 발급된 키에 맞는지
+ *    공식 문서로 확정할 수 없었다. 그래서 후보를 순서대로 시도하고
+ *    실제로 데이터가 나오는 쪽을 채택한다. 어느 쪽이 통했는지는
+ *    로그와 응답의 strategy 필드로 알 수 있다.
  */
 
 import { XMLParser } from 'fast-xml-parser';
 import { mockPolicies, MOCK_NOTICE } from '@/lib/mockPolicies';
-import { normalizePolicies, GYEONGGI_SIDO_CODE } from '@/lib/normalize';
+import { normalizePolicies, GYEONGGI_SIDO_CODE, GOYANG_ZIP_CODES } from '@/lib/normalize';
 
 /**
- * 요청마다 서버에서 실행한다.
- *
- * 라우트를 정적으로 굳히면(빌드 시점 프리렌더) 배포 후 인증키를 넣어도
- * 재빌드 전까지 빌드 당시 결과(=샘플 데이터)가 계속 나간다.
- * Cloudflare Workers처럼 ISR용 영속 캐시를 따로 붙여야 하는 환경에서 특히 그렇다.
- * 그래서 라우트는 런타임 실행하고, 1시간 캐시는 아래 외부 호출에 건다.
+ * 요청마다 실행한다. 정적으로 굳히면 배포 후 인증키를 넣어도
+ * 재빌드 전까지 빌드 당시 결과(샘플)가 계속 나간다.
  */
 export const dynamic = 'force-dynamic';
 
-/** 온통청년 호출 캐시 시간(초). 1시간. */
+/** 온통청년 호출 캐시 시간(초) */
 const REVALIDATE_SECONDS = 3600;
-
-// ==================================================================
-// [확정] 엔드포인트 · 파라미터
-// ------------------------------------------------------------------
-// 출처: https://www.youthcenter.go.kr/cmnFooter/openapiIntro/oaiDoc
-// 공식 요청 예시:
-//   https://www.youthcenter.go.kr/opi/youthPlcyList.do
-//   openApiVlak=... | pageIndex=1 | display=10
-//   | bizTycdSel=023010,023020 | srchPolyBizSecd=003002001,003002002
-//
-// 응답은 XML이다 (오픈 API 이용방법 페이지 명시).
-// ==================================================================
-const API_ENDPOINT = 'https://www.youthcenter.go.kr/opi/youthPlcyList.do';
-
-/** display 최대값 (문서: 기본 10, 최대 100) */
+/** 한 페이지 건수 (구버전 문서: 최대 100) */
 const PAGE_SIZE = 100;
-
-/**
- * 최대 조회 페이지 수.
- * 지역 필터가 경기도 단위라 경기 전체를 받아 고양시만 걸러내야 한다.
- * 1시간 캐시가 걸리므로 이 정도 호출은 감당 가능하다.
- */
+/** 최대 조회 페이지 */
 const MAX_PAGES = 10;
 
-function buildApiUrl(apiKey, pageIndex) {
-  const url = new URL(API_ENDPOINT);
-  url.searchParams.set('openApiVlak', apiKey); // [확정] 인증키
-  url.searchParams.set('pageIndex', String(pageIndex)); // [확정] 페이지 (필수)
-  url.searchParams.set('display', String(PAGE_SIZE)); // [확정] 건수 (필수, 최대 100)
+// ==================================================================
+// 시도할 API 후보
+// ------------------------------------------------------------------
+// [신버전] 공식 명세를 찾지 못했다. 인증키가 UUID 형식이면 이쪽일
+//          가능성이 높다. 법정시군구코드(41280)로 고양시를 직접 지정한다.
+// [구버전] 공식 문서에 명세가 있다. XML 응답. 지역은 시·도 단위뿐이라
+//          경기 전체를 받아 normalize.js가 고양시만 걸러낸다.
+// ==================================================================
+const STRATEGIES = [
+  {
+    name: 'v2-getPlcy',
+    url: 'https://www.youthcenter.go.kr/go/ythip/getPlcy',
+    params: (key, page) => ({
+      apiKeyNm: key,
+      pageNum: String(page),
+      pageSize: String(PAGE_SIZE),
+      rtnType: 'json',
+      zipCd: GOYANG_ZIP_CODES.join(','),
+    }),
+  },
+  {
+    name: 'v1-youthPlcyList',
+    url: 'https://www.youthcenter.go.kr/opi/youthPlcyList.do',
+    params: (key, page) => ({
+      openApiVlak: key,
+      pageIndex: String(page),
+      display: String(PAGE_SIZE),
+      srchPolyBizSecd: GYEONGGI_SIDO_CODE,
+    }),
+  },
+];
 
-  // [확정] 지역코드는 시·도 단위만 지원한다. 003002008 = 경기.
-  // 고양시(시군구) 코드가 API에 없어서, 경기 전체를 받아
-  // normalize.js 에서 '고양/덕양/일산' 텍스트로 걸러낸다.
-  url.searchParams.set('srchPolyBizSecd', GYEONGGI_SIDO_CODE);
-
-  return url;
-}
-
-/**
- * XML 응답에서 정책 배열을 꺼낸다.
- * 관찰된 구조: <youthPolicyList><youthPolicy>...</youthPolicy>...</youthPolicyList>
- * 구조가 다를 경우를 대비해 후보를 몇 개 더 본다.
- */
-function extractRows(payload) {
-  if (!payload) return [];
-
-  const candidates = [
-    payload?.youthPolicyList?.youthPolicy,
-    payload?.youthPolicy,
-    payload?.response?.body?.items?.item,
-    payload?.result?.youthPolicyList,
-  ];
-
-  for (const c of candidates) {
-    if (Array.isArray(c)) return c;
-    // 결과가 1건이면 배열이 아니라 객체로 온다
-    if (c && typeof c === 'object') return [c];
-  }
-  return [];
+/** UUID 형식이면 신버전을 먼저 시도한다 */
+function orderStrategies(key) {
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(key);
+  return isUuid ? STRATEGIES : [...STRATEGIES].reverse();
 }
 
 const parser = new XMLParser({
   ignoreAttributes: false,
   trimValues: true,
-  // 지역코드(003002008)처럼 앞자리 0이 있는 값이 숫자로 바뀌며 깨지는 것을 막는다
+  // 003002008, 41280 처럼 앞자리 0이 있는 코드가 숫자로 바뀌며 깨지는 것을 막는다
   parseTagValue: false,
   parseAttributeValue: false,
 });
 
 function parseBody(text) {
-  const trimmed = text.trim();
-  if (trimmed.startsWith('{') || trimmed.startsWith('[')) return JSON.parse(trimmed);
-  return parser.parse(trimmed);
+  const t = text.trim();
+  if (t.startsWith('{') || t.startsWith('[')) return JSON.parse(t);
+  return parser.parse(t);
+}
+
+/** 응답에서 정책 배열을 꺼낸다. 두 세대의 봉투 모양을 모두 본다. */
+function extractRows(payload) {
+  if (!payload) return [];
+  const candidates = [
+    payload?.result?.youthPolicyList,
+    payload?.result?.youthPolicy,
+    payload?.youthPolicyList?.youthPolicy,
+    payload?.youthPolicyList,
+    payload?.youthPolicy,
+    payload?.data?.youthPolicyList,
+    payload?.response?.body?.items?.item,
+    payload?.data,
+    payload?.items,
+  ];
+  for (const c of candidates) {
+    if (Array.isArray(c)) return c;
+    if (c && typeof c === 'object') {
+      const inner = c.youthPolicy ?? c.item;
+      if (Array.isArray(inner)) return inner;
+      if (inner && typeof inner === 'object') return [inner];
+      // 객체 자체가 정책 1건인 경우
+      if (Object.keys(c).length > 3) return [c];
+    }
+  }
+  return [];
 }
 
 function mockResponse(reason) {
@@ -112,6 +116,53 @@ function mockResponse(reason) {
   });
 }
 
+/** 전략 하나로 페이지를 순회하며 원본 행을 모은다 */
+async function fetchWithStrategy(strategy, apiKey) {
+  const rows = [];
+
+  for (let page = 1; page <= MAX_PAGES; page += 1) {
+    const url = new URL(strategy.url);
+    for (const [k, v] of Object.entries(strategy.params(apiKey, page))) {
+      url.searchParams.set(k, v);
+    }
+
+    const res = await fetch(url, {
+      headers: { Accept: 'application/json, text/xml;q=0.9' },
+      next: { revalidate: REVALIDATE_SECONDS },
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+    const payload = parseBody(await res.text());
+    const pageRows = extractRows(payload);
+
+    // ============================================================
+    // 👀 실제 응답 구조 확인용 (연동 첫날 한 번만 보면 된다)
+    // 인증키는 절대 찍지 않는다.
+    // ============================================================
+    if (page === 1) {
+      console.log(`[youth-api][${strategy.name}] 최상위 키:`, Object.keys(payload || {}));
+      if (pageRows.length > 0) {
+        console.log(`[youth-api][${strategy.name}] 항목 키:`, Object.keys(pageRows[0] || {}));
+        console.log(
+          `[youth-api][${strategy.name}] 첫 항목:`,
+          JSON.stringify(pageRows[0], null, 2).slice(0, 3000),
+        );
+      } else {
+        console.log(
+          `[youth-api][${strategy.name}] 정책 배열 없음. 응답:`,
+          JSON.stringify(payload, null, 2).slice(0, 1500),
+        );
+      }
+    }
+
+    if (pageRows.length === 0) break;
+    rows.push(...pageRows);
+    if (pageRows.length < PAGE_SIZE) break;
+  }
+
+  return rows;
+}
+
 export async function GET() {
   const apiKey = process.env.YOUTH_API_KEY;
 
@@ -119,71 +170,39 @@ export async function GET() {
     return mockResponse('YOUTH_API_KEY가 설정되지 않아 샘플 데이터를 반환했습니다.');
   }
 
-  try {
-    const allRows = [];
-    let scanned = 0;
+  const attempts = [];
 
-    for (let page = 1; page <= MAX_PAGES; page += 1) {
-      const res = await fetch(buildApiUrl(apiKey, page), {
-        headers: { Accept: 'text/xml, application/xml, application/json;q=0.9' },
-        next: { revalidate: REVALIDATE_SECONDS },
-      });
+  for (const strategy of orderStrategies(apiKey)) {
+    try {
+      const rows = await fetchWithStrategy(strategy, apiKey);
 
-      if (!res.ok) throw new Error(`온통청년 API 응답 실패: HTTP ${res.status}`);
-
-      const payload = parseBody(await res.text());
-      const rows = extractRows(payload);
-
-      // ============================================================
-      // 👀 실제 응답 키 확인용 로그 (연동 첫날 한 번만 보면 된다)
-      // ------------------------------------------------------------
-      // 여기 찍히는 키 이름으로 normalize.js 의 F(필드 후보)를
-      // 실제 이름 하나로 확정한 뒤, 이 블록은 지우면 된다.
-      // 인증키는 절대 찍지 않는다.
-      // ============================================================
-      if (page === 1) {
-        console.log('[youth-api] 응답 최상위 키:', Object.keys(payload || {}));
-        if (rows.length > 0) {
-          console.log('[youth-api] 항목 키 목록:', Object.keys(rows[0] || {}));
-          console.log('[youth-api] 첫 항목 원본:', JSON.stringify(rows[0], null, 2));
-        } else {
-          console.log(
-            '[youth-api] 정책 배열을 찾지 못했습니다. 응답 구조 확인 필요:',
-            JSON.stringify(payload, null, 2).slice(0, 2000),
-          );
-        }
+      if (rows.length === 0) {
+        attempts.push(`${strategy.name}: 응답은 왔지만 정책 0건`);
+        continue;
       }
 
-      if (rows.length === 0) break;
-      allRows.push(...rows);
-      scanned += rows.length;
+      const policies = normalizePolicies(rows);
+      console.log(`[youth-api][${strategy.name}] 원본 ${rows.length}건 → 고양시 ${policies.length}건`);
 
-      // 마지막 페이지
-      if (rows.length < PAGE_SIZE) break;
+      if (policies.length === 0) {
+        attempts.push(`${strategy.name}: 원본 ${rows.length}건 중 고양시 0건`);
+        continue;
+      }
+
+      return Response.json({
+        source: 'api',
+        strategy: strategy.name,
+        notice: null,
+        fetchedAt: new Date().toISOString(),
+        total: policies.length,
+        scanned: rows.length,
+        policies,
+      });
+    } catch (error) {
+      console.error(`[youth-api][${strategy.name}] 실패:`, error?.message);
+      attempts.push(`${strategy.name}: ${error?.message}`);
     }
-
-    const policies = normalizePolicies(allRows);
-    console.log(`[youth-api] 경기 ${scanned}건 조회 → 고양시 ${policies.length}건`);
-
-    if (policies.length === 0) {
-      return mockResponse(
-        `온통청년 API에서 경기 ${scanned}건을 받았지만 고양시 정책을 찾지 못했습니다. ` +
-          'normalize.js 의 필드 매핑과 고양시 판정 조건을 확인하세요.',
-      );
-    }
-
-    return Response.json({
-      source: 'api',
-      notice: null,
-      fetchedAt: new Date().toISOString(),
-      total: policies.length,
-      scanned,
-      policies,
-    });
-  } catch (error) {
-    console.error('[youth-api] 호출 실패:', error?.message);
-    return mockResponse(
-      `온통청년 API 호출에 실패해 샘플 데이터를 반환했습니다. (${error?.message})`,
-    );
   }
+
+  return mockResponse(`온통청년 API에서 정책을 가져오지 못했습니다. — ${attempts.join(' / ')}`);
 }
