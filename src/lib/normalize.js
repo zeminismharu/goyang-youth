@@ -399,32 +399,65 @@ function buildTarget(row) {
   return parts.length > 0 ? parts.join(' / ') : '공고 본문 확인 필요';
 }
 
-/** 응답 1건 → Policy 1건. 고양시와 무관하면 null. */
-export function normalizePolicy(row, index = 0, now = new Date()) {
+/** 담당기관이 경기도 본청(시군이 아닌)인가 */
+function isGyeonggiAgency(agency) {
+  return /^경기도(\s|$)/.test(String(agency || '').trim());
+}
+
+/**
+ * 한 행을 목록에 남길지 판정한다.
+ *
+ * ⚠️ 이 판정은 반드시 이 함수 하나에만 둔다.
+ * 예전에는 normalizePolicy(실제 필터)와 explainRow(진단)가 같은 판정을
+ * 각자 복사해서 갖고 있었다. 한쪽만 고치는 바람에 '광주시청' 정책이
+ * 실제로는 걸러졌는데 진단 출력에는 통과로 찍혔다.
+ * 진단이 실제 동작과 어긋나면 진단을 믿을 수 없으므로 일원화했다.
+ */
+function screenRow(row) {
   const title = pick(row, F.title);
-  if (!title) return null;
+  if (!title) {
+    return { ok: false, reason: '정책명 필드를 찾지 못함', title: '(제목 없음)', agency: '', zip: '' };
+  }
 
   const summary = pick(row, F.summary);
   const benefit = pick(row, F.benefit);
   const agency = pick(row, F.agency);
   const target = buildTarget(row);
-
   const haystack = `${title} ${summary} ${benefit} ${agency} ${target}`;
+  const zip = pick(row, F.zipCode);
+  const base = { title, summary, benefit, agency, target, haystack, zip };
 
-  // 원본의 지역코드가 부정확한 경우가 있다. 실제로 울산 동구 행사가
-  // 고양시 대상으로 섞여 들어왔다.
-  // 정책명에 다른 지자체가 박혀 있고 고양시 언급이 없으면 그 지자체 전용
-  // 정책으로 본다. 중앙부처·경기도 정책은 정책명에 지역이 없어 남는다.
-  // (a) 정책명에 다른 지자체가 박혀 있으면 그 지자체 전용 정책이다.
-  // (b) 담당기관이 지자체 그 자체인데 고양시·경기도가 아니면 마찬가지다.
-  //     '광주시청' 운영 정책이 (a)만으로는 걸러지지 않아 추가했다.
+  // 원본 지역코드가 부정확한 경우가 있어(울산 행사가 고양시 대상으로
+  // 섞여 들어왔다) 두 가지를 더 본다.
   if (!mentionsGoyang(haystack)) {
-    if (mentionsOtherLocality(title)) return null;
-    if (isLocalGovernment(agency) && !/^경기도(?![가-힣])|^경기도\s/.test(agency)) return null;
+    // (a) 정책명에 다른 지자체가 박혀 있으면 그 지자체 전용 정책이다.
+    if (mentionsOtherLocality(title)) {
+      return { ...base, ok: false, reason: '정책명이 다른 지자체를 지칭' };
+    }
+    // (b) 담당기관이 지자체 그 자체인데 경기도 본청이 아니면 마찬가지다.
+    //     '광주시청' 정책이 (a)만으로는 걸러지지 않아 추가했다.
+    if (isLocalGovernment(agency) && !isGyeonggiAgency(agency)) {
+      return { ...base, ok: false, reason: '담당기관이 다른 지자체' };
+    }
   }
 
   const region = resolveRegion(row, haystack);
-  if (!region) return null;
+  if (!region) {
+    return {
+      ...base,
+      ok: false,
+      reason: zip ? '지역코드에 고양시 코드 없음' : '지역코드 없고 본문에도 고양시 언급 없음',
+    };
+  }
+
+  return { ...base, ok: true, region };
+}
+
+/** 응답 1건 → Policy 1건. 고양시와 무관하면 null. */
+export function normalizePolicy(row, index = 0, now = new Date()) {
+  const screened = screenRow(row);
+  if (!screened.ok) return null;
+  const { title, summary, benefit, agency, target, haystack, region } = screened;
 
   // 1순위: aplyYmd — 이 API의 실제 신청기간 필드 ("20260810 ~ 20260825")
   let { start, end } = parsePeriod(pick(row, F.periodText), now);
@@ -489,38 +522,21 @@ export default normalizePolicies;
 // ==================================================================
 
 /** 행 하나가 왜 통과/제외됐는지 설명한다 */
-export function explainRow(row, now = new Date()) {
-  const title = pick(row, F.title);
-  if (!title) return { title: '(제목 없음)', kept: false, reason: '정책명 필드를 찾지 못함' };
-
-  const summary = pick(row, F.summary);
-  const benefit = pick(row, F.benefit);
-  const agency = pick(row, F.agency);
-  const target = buildTarget(row);
-  const haystack = `${title} ${summary} ${benefit} ${agency} ${target}`;
-  const zip = pick(row, F.zipCode);
-
-  if (!mentionsGoyang(haystack) && mentionsOtherLocality(title)) {
-    return { title, agency, zip: zip.slice(0, 60), kept: false, reason: '정책명이 다른 지자체를 지칭' };
-  }
-
-  const region = resolveRegion(row, haystack);
-  if (!region) {
-    return {
-      title,
-      agency,
-      zip: zip.slice(0, 60),
-      kept: false,
-      reason: zip ? '지역코드에 고양시 코드 없음' : '지역코드 없고 본문에도 고양시 언급 없음',
-    };
-  }
-
-  return { title, agency, zip: zip.slice(0, 60), kept: true, region };
+export function explainRow(row) {
+  const r = screenRow(row);
+  return {
+    title: r.title,
+    agency: r.agency,
+    zip: String(r.zip || '').slice(0, 60),
+    kept: r.ok,
+    reason: r.reason,
+    region: r.region,
+  };
 }
 
 /** 응답 전체에 대한 단계별 통계와 표본 */
 export function diagnose(rows, now = new Date()) {
-  const explained = (rows || []).map((r) => explainRow(r, now));
+  const explained = (rows || []).map((r) => explainRow(r));
   const kept = explained.filter((e) => e.kept);
   const dropped = explained.filter((e) => !e.kept);
 

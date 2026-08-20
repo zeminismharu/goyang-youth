@@ -332,21 +332,6 @@ export async function GET(request) {
         continue;
       }
 
-      if (debug) {
-        const first = rows[0] || {};
-        return Response.json(
-          {
-            debug: true,
-            strategy: strategy.name,
-            인증키경로: via,
-            응답필드명: Object.keys(first),
-            첫항목원본: first,
-            진단: diagnose(rows),
-          },
-          { headers: { 'Cache-Control': 'no-store' } },
-        );
-      }
-
       const youthPolicies = normalizePolicies(rows);
       console.log(`[youth-api][${strategy.name}] 원본 ${rows.length}건 → 고양시 ${youthPolicies.length}건`);
 
@@ -356,6 +341,28 @@ export async function GET(request) {
       const ggPolicies = normalizePolicies(gg.rows);
       const policies = dedupeByTitle([...youthPolicies, ...ggPolicies]);
       console.log(`[merge] 온통청년 ${youthPolicies.length} + 경기 ${ggPolicies.length} → ${policies.length}건`);
+
+      // ?debug=1 — 실제 필드명과 단계별 필터 결과, 두 소스 현황을 그대로 보여준다.
+      // 병합까지 끝난 뒤에 만들어야 경기데이터드림 상태도 함께 보인다.
+      if (debug) {
+        return Response.json(
+          {
+            debug: true,
+            strategy: strategy.name,
+            인증키경로: via,
+            소스: {
+              온통청년: youthPolicies.length,
+              경기데이터드림: ggPolicies.length,
+              경기조회건수: gg.scanned,
+              경기미연동사유: gg.reason,
+              병합후: policies.length,
+            },
+            진단: diagnose(rows),
+            응답필드명: Object.keys(rows[0] || {}),
+          },
+          { headers: { 'Cache-Control': 'no-store' } },
+        );
+      }
 
       if (policies.length === 0) {
         attempts.push(`${strategy.name}: 원본 ${rows.length}건 중 고양시 0건`);
