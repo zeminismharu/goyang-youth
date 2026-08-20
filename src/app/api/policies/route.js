@@ -148,6 +148,39 @@ function shorten(text) {
 }
 
 /**
+ * 응답 본문을 글자 깨짐 없이 읽는다.
+ *
+ * ⚠️ 경기데이터드림 오류 페이지가 EUC-KR 로 온다. UTF-8 로 읽으면
+ *    "- ���� ��å�� ..." 처럼 통째로 깨져서 원인을 읽을 수 없다.
+ *    Content-Type 의 charset 을 우선 보고, 못 믿을 때를 대비해
+ *    후보를 돌려가며 대체문자(U+FFFD)가 가장 적은 결과를 고른다.
+ *    (Workers 런타임은 compatibility_date 2026-03-03 부터 CJK 전용
+ *     TextDecoder 를 기본으로 쓴다. 우리 설정은 그 이후다.)
+ */
+function decodeBytes(buffer, contentType) {
+  const declared = /charset=["']?([\w-]+)/i.exec(String(contentType || ''))?.[1];
+  const candidates = [...new Set([declared, 'utf-8', 'euc-kr'].filter(Boolean))];
+
+  let best = null;
+  for (const label of candidates) {
+    let text;
+    try {
+      text = new TextDecoder(label).decode(buffer);
+    } catch {
+      continue; // 런타임이 모르는 인코딩 이름
+    }
+    const broken = (text.match(/\uFFFD/g) || []).length;
+    if (!best || broken < best.broken) best = { text, broken };
+    if (broken === 0) break;
+  }
+  return best ? best.text : '';
+}
+
+async function readBody(res) {
+  return decodeBytes(await res.arrayBuffer(), res.headers.get('content-type'));
+}
+
+/**
  * JSON이 아닌 응답에서 사람이 읽을 부분만 뽑는다.
  * 경기데이터드림이 오류를 HTTP 200 + 안내 HTML로 돌려주는 경우가 있는데,
  * 그때 JSON.parse 예외("Unexpected token '<'")만 남으면 원인을 알 수 없다.
@@ -171,7 +204,7 @@ async function fetchWithRetry(url, init, apiKey) {
       const res = await fetch(url, init);
       if (res.ok) return res;
 
-      const body = shorten(redact(await res.text(), apiKey));
+      const body = shorten(redact(await readBody(res), apiKey));
       last = new Error(`HTTP ${res.status}${body ? ` \u2014 ${body}` : ''}`);
       retriable = isTransient(res.status);
     } catch (error) {
@@ -274,7 +307,7 @@ async function fetchWithStrategy(strategy, apiKey) {
       apiKey,
     );
 
-    const payload = parseBody(await res.text());
+    const payload = parseBody(await readBody(res));
     const pageRows = extractRows(payload);
 
     // ============================================================
@@ -333,7 +366,7 @@ async function fetchGyeonggi() {
         key,
       );
 
-      const text = await res.text();
+      const text = await readBody(res);
 
       let payload;
       try {
