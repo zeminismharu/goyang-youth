@@ -75,6 +75,27 @@ const OTHER_LOCALITIES = [
   '포천', '여주', '연천', '가평', '양평',
 ];
 
+/**
+ * 담당기관이 "지자체 그 자체"인가.
+ *
+ * ⚠️ 실데이터에서 '광주시청'이 운영하는 정책이 중앙부처로 통과했다.
+ * 정책명에 지역이 없으면 걸러내지 못했기 때문이다.
+ * 그렇다고 기관명에 지역명이 들어가면 무조건 빼면 '서울대학교',
+ * '한국장학재단 대전지부' 같은 전국 사업 운영기관까지 사라진다.
+ *
+ * 그래서 "기관 자체가 지자체인가"를 본다.
+ * 광역단체 정식명칭으로 시작하거나 시청/도청/군청/구청으로 끝나면 지자체다.
+ * 대학교·재단·공단·진흥원은 여기 걸리지 않는다.
+ */
+const SIDO_FULL =
+  /(서울특별시|부산광역시|대구광역시|인천광역시|광주광역시|대전광역시|울산광역시|세종특별자치시|경기도|강원특별자치도|강원도|충청북도|충청남도|전북특별자치도|전라북도|전라남도|경상북도|경상남도|제주특별자치도)/;
+const GOV_OFFICE = /[가-힣]{2,5}(시청|도청|군청|구청)/;
+
+export function isLocalGovernment(agency) {
+  const a = String(agency || '');
+  return SIDO_FULL.test(a) || GOV_OFFICE.test(a);
+}
+
 export function mentionsOtherLocality(text) {
   const t = String(text || '');
   return OTHER_LOCALITIES.some((name) => t.includes(name));
@@ -104,9 +125,15 @@ const F = {
   employment: ['jobCd', 'empmSttsCn'],
   etcTarget: ['addAplyQlfcCndCn', 'aditRscn', 'prcpCn'],
 
-  startDate: ['aplyBgngYmd', 'bizPrdBgngYmd'],
-  endDate: ['aplyEndYmd', 'bizPrdEndYmd'],
+  // ⚠️ 실제 응답으로 확정한 부분.
+  // aplyBgngYmd/aplyEndYmd 라는 필드는 존재하지 않는다.
+  // 신청기간은 aplyYmd 에 문자열로 들어온다: "20260810 ~ 20260825"
+  // bizPrdBgngYmd/EndYmd 는 '사업(행사) 기간'이라 마감일이 아니다.
+  //   산림 캠프: bizPrd 20260903~20260904(캠프 열리는 날)
+  //              aplyYmd 20260810 ~ 20260825(실제 접수)
   periodText: ['aplyYmd', 'rqutPrdCn', 'bizPrdCn'],
+  programStart: ['bizPrdBgngYmd'],
+  programEnd: ['bizPrdEndYmd'],
 
   agency: ['rgtrInstCdNm', 'sprvsnInstCdNm', 'operInstCdNm', 'cnsgNmor', 'mngtMson'],
   applyUrl: ['aplyUrlAddr', 'rqutUrla', 'refUrlAddr1', 'rfcSiteUrla1'],
@@ -388,29 +415,36 @@ export function normalizePolicy(row, index = 0, now = new Date()) {
   // 고양시 대상으로 섞여 들어왔다.
   // 정책명에 다른 지자체가 박혀 있고 고양시 언급이 없으면 그 지자체 전용
   // 정책으로 본다. 중앙부처·경기도 정책은 정책명에 지역이 없어 남는다.
-  if (!mentionsGoyang(haystack) && mentionsOtherLocality(title)) return null;
+  // (a) 정책명에 다른 지자체가 박혀 있으면 그 지자체 전용 정책이다.
+  // (b) 담당기관이 지자체 그 자체인데 고양시·경기도가 아니면 마찬가지다.
+  //     '광주시청' 운영 정책이 (a)만으로는 걸러지지 않아 추가했다.
+  if (!mentionsGoyang(haystack)) {
+    if (mentionsOtherLocality(title)) return null;
+    if (isLocalGovernment(agency) && !/^경기도(?![가-힣])|^경기도\s/.test(agency)) return null;
+  }
 
   const region = resolveRegion(row, haystack);
   if (!region) return null;
 
-  // 1순위: 본문에 명시된 접수기간 (API 날짜가 사업기간인 경우가 많다)
-  let { start, end } = extractApplyPeriod(`${benefit}\n${summary}`);
+  // 1순위: aplyYmd — 이 API의 실제 신청기간 필드 ("20260810 ~ 20260825")
+  let { start, end } = parsePeriod(pick(row, F.periodText), now);
 
-  // 2순위: API의 날짜 필드. 단 회계연도성 구간이면 마감일이 아니므로 버린다.
+  // 2순위: 본문에 명시된 "접수기간/신청기간" (aplyYmd 가 비어 있을 때)
   if (!start && !end) {
-    const apiStart = toIsoDate(pick(row, F.startDate));
-    const apiEnd = toIsoDate(pick(row, F.endDate));
-    if (!looksLikeProgramPeriod(apiStart, apiEnd)) {
-      start = apiStart;
-      end = apiEnd;
-    }
+    const fromText = extractApplyPeriod(`${benefit}\n${summary}`);
+    start = fromText.start;
+    end = fromText.end;
   }
 
-  // 3순위: 자유 텍스트 기간 필드 (구버전 XML 경로)
+  // 3순위: 사업기간. 마감일이 아니지만 아무 정보도 없는 것보다는 낫다.
+  // 단 회계연도성 구간(1/1~12/31 등)은 D-day가 의미 없으므로 버린다.
   if (!start && !end) {
-    const parsed = parsePeriod(pick(row, F.periodText), now);
-    start = parsed.start;
-    end = parsed.end;
+    const ps = toIsoDate(pick(row, F.programStart));
+    const pe = toIsoDate(pick(row, F.programEnd));
+    if (!looksLikeProgramPeriod(ps, pe)) {
+      start = ps;
+      end = pe;
+    }
   }
 
   const url = pick(row, F.applyUrl);
