@@ -168,16 +168,9 @@ async function visibleSecretNames() {
 /** 특정 키를 못 찾았을 때 어디를 봐야 하는지 알려주는 문자열 */
 async function diagnoseMissingSecret(name) {
   const { proc, cf } = await visibleSecretNames();
-  const parts = [`${name} 을(를) 찾지 못했습니다.`];
-
-  if (cf === null) {
-    parts.push(`process.env 이름 ${proc.length}개: ${proc.slice(0, 20).join(', ') || '(없음)'}`);
-    parts.push('Cloudflare 바인딩 접근 불가(Node 환경)');
-  } else {
-    parts.push(`Cloudflare 바인딩 ${cf.length}개: ${cf.join(', ') || '(없음)'}`);
-  }
-  parts.push('Settings > Variables and Secrets(빌드 변수 아님)에 이 이름 그대로 등록했는지 확인하세요.');
-  return parts.join(' | ');
+  const visible = (cf === null ? proc : cf).join(',') || '(없음)';
+  // 짧게 유지한다. 길면 붙여넣다가 잘려서 정작 필요한 목록이 안 보인다.
+  return `${name} 없음. 보이는 이름: ${visible}`;
 }
 
 const diagnoseMissingKey = () => diagnoseMissingSecret('YOUTH_API_KEY');
@@ -351,6 +344,9 @@ export async function GET(request) {
         return Response.json(
           {
             debug: true,
+            // ⚠️ 맨 앞에 둔다. 뒤에 두면 붙여넣을 때 잘려서 못 본다.
+            //    값은 담지 않고 "이름"만 담는다.
+            바인딩: (await visibleSecretNames()).cf ?? '(Node 환경)',
             strategy: strategy.name,
             인증키경로: via,
             소스: {
