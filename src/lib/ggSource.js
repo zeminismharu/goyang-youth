@@ -79,7 +79,19 @@ export function buildGgUrl(apiKey, pIndex = 1) {
  */
 export function extractGgRows(payload) {
   const service = payload?.JobFndtnSportPolocy;
-  if (!Array.isArray(service)) return { rows: [], code: null, message: null, total: null };
+
+  // ⚠️ 오류일 때는 서비스 봉투 없이 RESULT 만 최상위로 온다. 실측:
+  //    {"RESULT":{"CODE":"ERROR-290","MESSAGE":"인증키가 유효하지 않습니다. ..."}}
+  //    이걸 못 읽으면 원인이 "행 없음"으로 뭉개져서 진단이 무의미해진다.
+  if (!Array.isArray(service)) {
+    const result = payload?.RESULT;
+    return {
+      rows: [],
+      code: result?.CODE ?? null,
+      message: result?.MESSAGE ?? null,
+      total: null,
+    };
+  }
 
   let rows = [];
   let code = null;
