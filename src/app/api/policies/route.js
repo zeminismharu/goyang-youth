@@ -105,6 +105,68 @@ function extractRows(payload) {
   return [];
 }
 
+// ==================================================================
+// 인증키 읽기
+// ------------------------------------------------------------------
+// Cloudflare Workers에서 시크릿을 읽는 경로가 두 가지다.
+//   1) process.env            — OpenNext가 채워주는 경우
+//   2) getCloudflareContext() — 어댑터가 제공하는 정식 경로
+// 버전·설정에 따라 한쪽만 되는 경우가 있어 둘 다 본다.
+// Node(next dev/build)에서는 2번이 없으므로 try로 감싼다.
+// ==================================================================
+async function resolveApiKey() {
+  const fromProcess = String(process.env.YOUTH_API_KEY || '').trim();
+  if (fromProcess) return { key: fromProcess, via: 'process.env' };
+
+  try {
+    const mod = await import('@opennextjs/cloudflare');
+    const ctx = await mod.getCloudflareContext({ async: true });
+    const v = String(ctx?.env?.YOUTH_API_KEY || '').trim();
+    if (v) return { key: v, via: 'cloudflareContext.env' };
+  } catch {
+    // Node 환경이면 이 경로가 없다. 정상이다.
+  }
+
+  return { key: '', via: null };
+}
+
+/**
+ * 키를 못 찾았을 때 "어디를 봐야 하는지" 알려주는 진단 문자열.
+ * ⚠️ 값은 절대 담지 않는다. 변수 "이름"과 개수만 본다.
+ */
+async function diagnoseMissingKey() {
+  const procNames = Object.keys(process.env || {});
+  const procYouth = procNames.filter((n) => /youth/i.test(n));
+
+  let cfNames = null;
+  try {
+    const mod = await import('@opennextjs/cloudflare');
+    const ctx = await mod.getCloudflareContext({ async: true });
+    cfNames = Object.keys(ctx?.env || {});
+  } catch {
+    // Node 환경
+  }
+  const cfYouth = cfNames ? cfNames.filter((n) => /youth/i.test(n)) : null;
+
+  const parts = [
+    `process.env 변수 ${procNames.length}개`,
+    procYouth.length ? `그중 youth 관련: ${procYouth.join(', ')}` : 'youth 관련 이름 없음',
+  ];
+
+  if (cfNames === null) {
+    parts.push('Cloudflare 바인딩 접근 불가(Node 환경으로 보임)');
+  } else {
+    parts.push(`Cloudflare 바인딩 ${cfNames.length}개`);
+    parts.push(
+      cfYouth.length
+        ? `그중 youth 관련: ${cfYouth.join(', ')}`
+        : `바인딩 이름: ${cfNames.slice(0, 15).join(', ') || '(없음)'}`,
+    );
+  }
+
+  return parts.join(' | ');
+}
+
 function mockResponse(reason) {
   return Response.json({
     source: 'mock',
@@ -164,11 +226,19 @@ async function fetchWithStrategy(strategy, apiKey) {
 }
 
 export async function GET() {
-  const apiKey = process.env.YOUTH_API_KEY;
+  const { key: apiKey, via } = await resolveApiKey();
 
   if (!apiKey) {
-    return mockResponse('YOUTH_API_KEY가 설정되지 않아 샘플 데이터를 반환했습니다.');
+    const diag = await diagnoseMissingKey();
+    console.log('[youth-api] 인증키를 찾지 못했습니다.', diag);
+    return mockResponse(
+      'YOUTH_API_KEY를 읽지 못했습니다. Cloudflare 대시보드에서 Settings > ' +
+        'Variables and Secrets(빌드 변수가 아님)에 Secret으로 등록했는지 확인하세요. ' +
+        `[진단] ${diag}`,
+    );
   }
+
+  console.log(`[youth-api] 인증키 확인됨 (경로: ${via}, 길이: ${apiKey.length})`);
 
   const attempts = [];
 
