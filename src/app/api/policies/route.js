@@ -298,96 +298,110 @@ function dedupeByTitle(policies) {
   return out;
 }
 
-export async function GET(request) {
-  // ?debug=1 — 실제 응답의 필드명과 단계별 필터 결과를 그대로 보여준다.
-  // 추측으로 필터를 손보지 않기 위한 장치다. 인증키는 담기지 않는다.
-  const debug = new URL(request.url).searchParams.get('debug') === '1';
-
-  const { key: apiKey, via } = await resolveApiKey();
-
-  if (!apiKey) {
-    const diag = await diagnoseMissingKey();
-    console.log('[youth-api] 인증키를 찾지 못했습니다.', diag);
-    return mockResponse(
-      'YOUTH_API_KEY를 읽지 못했습니다. Cloudflare 대시보드에서 Settings > ' +
-        'Variables and Secrets(빌드 변수가 아님)에 Secret으로 등록했는지 확인하세요. ' +
-        `[진단] ${diag}`,
-    );
-  }
-
-  console.log(`[youth-api] 인증키 확인됨 (경로: ${via}, 길이: ${apiKey.length})`);
-
+/**
+ * 온통청년에서 정책을 가져온다. 전략을 순서대로 시도한다.
+ * 실패해도 던지지 않고 사유만 담아 반환한다. 한 소스가 죽어도
+ * 다른 소스로 서비스가 이어져야 하기 때문이다.
+ */
+async function fetchYouth(apiKey) {
   const attempts = [];
 
   for (const strategy of orderStrategies(apiKey)) {
     try {
       const rows = await fetchWithStrategy(strategy, apiKey);
-
       if (rows.length === 0) {
         attempts.push(`${strategy.name}: 응답은 왔지만 정책 0건`);
         continue;
       }
-
-      const youthPolicies = normalizePolicies(rows);
-      console.log(`[youth-api][${strategy.name}] 원본 ${rows.length}건 → 고양시 ${youthPolicies.length}건`);
-
-      // 보조 소스: 경기데이터드림(잡아바)의 고양시 정책을 합친다.
-      // 온통청년 쪽이 지원내용·대상까지 주므로 제목이 겹치면 그쪽을 남긴다.
-      const gg = await fetchGyeonggi();
-      const ggPolicies = normalizePolicies(gg.rows);
-      const policies = dedupeByTitle([...youthPolicies, ...ggPolicies]);
-      console.log(`[merge] 온통청년 ${youthPolicies.length} + 경기 ${ggPolicies.length} → ${policies.length}건`);
-
-      // ?debug=1 — 실제 필드명과 단계별 필터 결과, 두 소스 현황을 그대로 보여준다.
-      // 병합까지 끝난 뒤에 만들어야 경기데이터드림 상태도 함께 보인다.
-      if (debug) {
-        return Response.json(
-          {
-            debug: true,
-            // ⚠️ 맨 앞에 둔다. 뒤에 두면 붙여넣을 때 잘려서 못 본다.
-            //    값은 담지 않고 "이름"만 담는다.
-            바인딩: (await visibleSecretNames()).cf ?? '(Node 환경)',
-            strategy: strategy.name,
-            인증키경로: via,
-            소스: {
-              온통청년: youthPolicies.length,
-              경기데이터드림: ggPolicies.length,
-              경기조회건수: gg.scanned,
-              경기미연동사유: gg.reason,
-              병합후: policies.length,
-            },
-            진단: diagnose(rows),
-            응답필드명: Object.keys(rows[0] || {}),
-          },
-          { headers: { 'Cache-Control': 'no-store' } },
-        );
-      }
-
+      const policies = normalizePolicies(rows);
+      console.log(`[youth-api][${strategy.name}] 원본 ${rows.length}건 → 고양시 ${policies.length}건`);
       if (policies.length === 0) {
         attempts.push(`${strategy.name}: 원본 ${rows.length}건 중 고양시 0건`);
         continue;
       }
-
-      return Response.json({
-        source: 'api',
-        strategy: strategy.name,
-        notice: null,
-        fetchedAt: new Date().toISOString(),
-        total: policies.length,
-        scanned: rows.length,
-        sources: {
-          온통청년: youthPolicies.length,
-          경기데이터드림: ggPolicies.length,
-          경기조회건수: gg.scanned,
-          경기미연동사유: gg.reason,
-        },
-        policies,
-      });
+      return { policies, rows, strategy: strategy.name, reason: null };
     } catch (error) {
       console.error(`[youth-api][${strategy.name}] 실패:`, error?.message);
       attempts.push(`${strategy.name}: ${error?.message}`);
     }
   }
 
-  return mockResponse(`온통청년 API에서 정책을 가져오지 못했습니다. — ${attempts.join(' / ')}`);
+  return { policies: [], rows: [], strategy: null, reason: attempts.join(' / ') };
+}
+
+export async function GET(request) {
+  // ?debug=1 — 실제 필드명과 단계별 필터 결과, 두 소스 현황을 보여준다.
+  // 추측으로 필터를 손보지 않기 위한 장치다. 인증키 값은 담기지 않는다.
+  const debug = new URL(request.url).searchParams.get('debug') === '1';
+
+  const { key: apiKey, via } = await resolveApiKey();
+  if (apiKey) {
+    console.log(`[youth-api] 인증키 확인됨 (경로: ${via}, 길이: ${apiKey.length})`);
+  }
+
+  // ⚠️ 두 소스를 독립적으로 부른다.
+  // 예전에는 경기데이터드림 호출이 온통청년 성공 분기 안에 있었다.
+  // 그래서 온통청년이 죽으면(실제로 HTTP 400/522가 났다) 멀쩡한 경기
+  // 데이터까지 못 쓰고 통째로 샘플로 떨어졌다. 한쪽이 죽어도 다른 쪽으로
+  // 서비스가 이어져야 한다.
+  const [youth, gg] = await Promise.all([
+    apiKey
+      ? fetchYouth(apiKey)
+      : Promise.resolve({
+          policies: [],
+          rows: [],
+          strategy: null,
+          reason: await diagnoseMissingSecret('YOUTH_API_KEY'),
+        }),
+    fetchGyeonggi(),
+  ]);
+
+  const ggPolicies = normalizePolicies(gg.rows);
+  // 온통청년이 지원내용·대상까지 주므로 제목이 겹치면 그쪽을 남긴다.
+  const policies = dedupeByTitle([...youth.policies, ...ggPolicies]);
+
+  const sources = {
+    온통청년: youth.policies.length,
+    온통청년실패사유: youth.reason,
+    경기데이터드림: ggPolicies.length,
+    경기조회건수: gg.scanned,
+    경기미연동사유: gg.reason,
+    병합후: policies.length,
+  };
+  console.log('[merge]', JSON.stringify(sources));
+
+  if (debug) {
+    return Response.json(
+      {
+        debug: true,
+        // ⚠️ 맨 앞에 둔다. 뒤에 두면 붙여넣을 때 잘려서 못 본다.
+        바인딩: (await visibleSecretNames()).cf ?? '(Node 환경)',
+        strategy: youth.strategy,
+        인증키경로: via,
+        소스: sources,
+        진단: youth.rows.length ? diagnose(youth.rows) : '온통청년 응답 없음',
+        응답필드명: Object.keys(youth.rows[0] || {}),
+      },
+      { headers: { 'Cache-Control': 'no-store' } },
+    );
+  }
+
+  // 한 건이라도 있으면 실데이터로 서비스한다.
+  if (policies.length > 0) {
+    return Response.json({
+      source: 'api',
+      strategy: youth.strategy,
+      notice: null,
+      fetchedAt: new Date().toISOString(),
+      total: policies.length,
+      scanned: youth.rows.length,
+      sources,
+      policies,
+    });
+  }
+
+  // 두 소스 모두 빈손일 때만 샘플로 떨어진다.
+  return mockResponse(
+    `실데이터를 가져오지 못했습니다. — 온통청년: ${youth.reason || '없음'} / 경기: ${gg.reason || '없음'}`,
+  );
 }
