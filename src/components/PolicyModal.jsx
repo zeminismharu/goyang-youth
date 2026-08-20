@@ -161,7 +161,10 @@ function Row({ label, icon, children }) {
         {icon}
         {label}
       </dt>
-      <dd className="leading-relaxed text-neutral-800">{children}</dd>
+      {/* 공고문이 줄바꿈과 이모지를 그대로 담아 오므로 개행을 살린다 */}
+      <dd className="whitespace-pre-line break-words leading-relaxed text-neutral-800">
+        {children}
+      </dd>
     </div>
   );
 }

@@ -213,34 +213,73 @@ export function resolveCategory(row, text) {
 
 /**
  * 지역 판정.
- * 1) 법정시군구코드가 고양시 코드면 그것을 쓴다 (신버전 경로)
- * 2) 아니면 텍스트에서 고양/덕양/일산을 찾는다 (구버전 경로)
- * 고양시와 무관하면 null.
+ *
+ * ⚠️ 실제 응답을 보고 고친 부분이다.
+ * 신버전 API의 zipCd 에는 그 정책이 적용되는 시군구 코드가 "여러 개"
+ * 들어온다. 전국 사업이면 전국 시군구 코드가 전부 들어있다.
+ * 그래서 "고양시 코드가 하나라도 있으면 그 구"라고 단정하면
+ * 산림청 전국 사업이 '덕양구' 정책으로 둔갑한다.
+ *
+ * 규칙
+ *   - 41280(고양시 전체)이 있으면 → 고양시 전역
+ *   - 코드 목록이 짧고(고양시 한정으로 보이고) 특정 구 하나만 있으면 → 그 구
+ *   - 그 외(전국·광역 사업) → 고양시 전역
+ *   - 코드가 아예 없으면 텍스트로 판정 (구버전 경로)
  */
+const BROAD_CODE_THRESHOLD = 5;
+
 export function resolveRegion(row, text) {
-  const zip = pick(row, F.zipCode);
-  if (zip) {
-    // 콤마로 여러 개 올 수 있다. 고양시 코드가 하나라도 있으면 채택.
-    for (const code of zip.split(/[,\s]+/)) {
-      const head = code.slice(0, 5);
-      if (ZIP_TO_REGION[head]) return ZIP_TO_REGION[head];
+  const raw = pick(row, F.zipCode);
+
+  if (raw) {
+    const codes = raw
+      .split(/[,\s|]+/)
+      .map((c) => c.trim().slice(0, 5))
+      .filter(Boolean);
+
+    const goyang = codes.filter((c) => ZIP_TO_REGION[c]);
+    if (goyang.length > 0) {
+      // 시 전체 코드가 있으면 구를 특정하지 않는다
+      if (goyang.includes('41280')) return REGION_ALL;
+      // 전국·광역 사업이면 구를 특정할 수 없다
+      if (codes.length > BROAD_CODE_THRESHOLD) return REGION_ALL;
+      // 고양시 구가 여러 개면 시 전역으로 본다
+      const districts = [...new Set(goyang.map((c) => ZIP_TO_REGION[c]))];
+      return districts.length === 1 ? districts[0] : REGION_ALL;
     }
+
+    // 코드는 있는데 고양시가 없다 → 텍스트로 한 번 더 본다
+    return detectGoyangRegion(text);
   }
+
   return detectGoyangRegion(text);
+}
+
+/**
+ * 코드값처럼 보이는 문자열인지.
+ * 실제 응답의 schoolCd/jobCd 가 '0049010' 같은 코드로 와서
+ * 지원대상에 그대로 노출되는 문제가 있었다.
+ */
+function looksLikeCode(v) {
+  return /^[0-9]{4,}$/.test(v) || /^[0-9]{4,}(,[0-9]{4,})+$/.test(v);
 }
 
 /** 지원 대상 텍스트를 여러 필드에서 모아 한 문장으로 */
 function buildTarget(row) {
   const min = pick(row, F.ageMin);
   const max = pick(row, F.ageMax);
-  const ageRange = min && max ? `만 ${min}~${max}세` : '';
+  // 0 또는 비정상 값은 버린다 (연령 제한 없음을 0으로 주는 경우가 있다)
+  const hasAge = min && max && Number(min) > 0 && Number(max) > 0 && Number(max) < 200;
+  const ageRange = hasAge ? `만 ${min}~${max}세` : '';
 
   const parts = [
     ageRange || pick(row, F.age),
     pick(row, F.education),
     pick(row, F.employment),
     pick(row, F.etcTarget),
-  ].filter((v) => v && v !== '제한없음' && v !== '-' && v !== '0');
+  ]
+    .map((v) => String(v || '').trim())
+    .filter((v) => v && v !== '제한없음' && v !== '-' && v !== '0' && !looksLikeCode(v));
 
   return parts.length > 0 ? parts.join(' / ') : '공고 본문 확인 필요';
 }
