@@ -9,14 +9,16 @@ export default function CheckinPlaceholder({ day, startDate, back }) {
     back();
   };
   return (
-    <main className="screen">
-      <header className="top">
-        <button className="icon-btn" onClick={back}>← 홈</button>
-      </header>
-      <h1>{day}일차 기록</h1>
-      <p className="muted">{formatKDate(dateOfDay(startDate, day))}</p>
-      <div className="card soft">체크인 화면은 1-3단계에서 만들어요.</div>
-      <button className="secondary" onClick={markDone}>(테스트) 이 날 기록 완료로 표시</button>
+    <main className="screen has-cta">
+      <header className="top"><button className="icon-btn" onClick={back}>← 홈</button></header>
+      <section>
+        <p className="caption">{formatKDate(dateOfDay(startDate, day))}</p>
+        <h1 className="title">{day}일차 기록</h1>
+      </section>
+      <section className="card"><p className="body sub">체크인 화면은 1-3단계에서 만들어요.</p></section>
+      <div className="cta-bar">
+        <button className="btn secondary" onClick={markDone}>(테스트) 이 날 기록 완료로 표시</button>
+      </div>
     </main>
   );
 }

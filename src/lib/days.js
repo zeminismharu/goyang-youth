@@ -1,5 +1,8 @@
-// 날짜 계산: 0일차 = 시작한 날. 체크인은 "다음날 아침에 어제 것"을 기록.
+// 날짜 계산: 0일차 = 시작한 날. 체크인은 "그날 밤에 오늘 것"을 기록.
+// 새벽 4시 전까지는 전날로 칩니다 (자정 넘어 기록해도 '오늘' 기록이 되도록).
 export const TOTAL_DAYS = 7;
+
+export const DAY_CUTOFF_HOUR = 4;
 
 export function todayStr(d = new Date()) {
   const y = d.getFullYear();
@@ -28,15 +31,20 @@ export function formatKDate(str) {
   return `${m}월 ${d}일 (${w})`;
 }
 
+// 새벽 4시 기준의 '오늘'
+export function logicalToday(now = new Date()) {
+  return todayStr(new Date(now.getTime() - DAY_CUTOFF_HOUR * 3600000));
+}
+
 // 오늘이 몇 일차인지 (0 = 시작일)
-export function currentDay(startDate, today = todayStr()) {
+export function currentDay(startDate, today = logicalToday()) {
   return diffDays(startDate, today);
 }
 
-// 각 일차의 상태: done(기록함) / due(지금 기록할 차례) / missed(지났는데 비어 있음) / future(아직)
-export function dayStatuses(startDate, doneDays, today = todayStr()) {
+// 각 일차의 상태: done(기록함) / due(오늘 밤 기록할 차례) / missed(지났는데 비어 있음) / future(아직)
+export function dayStatuses(startDate, doneDays, today = logicalToday()) {
   const cur = currentDay(startDate, today);
-  const target = cur - 1; // 오늘 아침에 기록할 날 = 어제
+  const target = cur; // 오늘 밤에 기록할 날 = 오늘
   const list = [];
   for (let n = 1; n <= TOTAL_DAYS; n++) {
     let status;
