@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import PinPad from './PinPad.jsx';
 import { checkPin, savePin } from '../lib/pin.js';
 import { db } from '../lib/db.js';
+import { enableFaceId, faceIdEnabled, verifyFaceId } from '../lib/faceid.js';
 
 // 잠금 해제 화면
 export function Unlock({ onUnlock }) {
@@ -9,6 +10,25 @@ export function Unlock({ onUnlock }) {
   const [fails, setFails] = useState(0);
   const [waitUntil, setWaitUntil] = useState(0);
   const [forgot, setForgot] = useState(false);
+  const [faceOn, setFaceOn] = useState(false);
+  const [faceBusy, setFaceBusy] = useState(false);
+  const tried = useRef(false);
+
+  const tryFace = async () => {
+    if (faceBusy) return;
+    setFaceBusy(true);
+    const ok = await verifyFaceId();
+    setFaceBusy(false);
+    if (ok) onUnlock();
+  };
+
+  // 화면이 뜨자마자 Face ID를 한 번 자동으로 시도 (아이폰이 막으면 버튼으로)
+  useEffect(() => {
+    faceIdEnabled().then((on) => {
+      setFaceOn(on);
+      if (on && !tried.current) { tried.current = true; tryFace(); }
+    });
+  }, []);
 
   const submit = async (pin) => {
     if (Date.now() < waitUntil) {
@@ -33,8 +53,46 @@ export function Unlock({ onUnlock }) {
       title="비밀번호를 입력해 주세요"
       error={error}
       onComplete={submit}
-      footer={<button className="text-btn" onClick={() => setForgot(true)}>비밀번호를 잊었어요</button>}
+      footer={
+        <>
+          {faceOn && (
+            <button className="btn secondary face-btn" onClick={tryFace} disabled={faceBusy}>
+              Face ID로 열기
+            </button>
+          )}
+          <button className="text-btn" onClick={() => setForgot(true)}>비밀번호를 잊었어요</button>
+        </>
+      }
     />
+  );
+}
+
+// 비밀번호를 만든 직후: Face ID도 쓸지 물어보기
+export function FaceIdOffer({ onDone }) {
+  const [error, setError] = useState('');
+  const turnOn = async () => {
+    try {
+      await enableFaceId();
+      onDone();
+    } catch {
+      setError('Face ID를 켜지 못했어요. 나중에 설정에서 다시 켤 수 있어요.');
+    }
+  };
+  return (
+    <main className="screen has-cta">
+      <header className="top" />
+      <h1 className="title lg">Face ID로<br />더 빠르게 열까요?</h1>
+      <p className="body sub">매일 밤 기록할 때 비밀번호 대신 얼굴로 열 수 있어요. Face ID가 안 될 때는 비밀번호로 열면 돼요.</p>
+      <section className="card">
+        <p className="body sub">얼굴 정보는 아이폰이 직접 확인하고, 앱은 '본인 맞음' 결과만 받아요. 어디에도 전송되지 않아요.</p>
+        <p className="caption">아이폰 설정 &gt; 암호 앱에 '제레미' 항목이 생길 수 있어요. Face ID 등록을 위해 아이폰이 만드는 열쇠예요.</p>
+      </section>
+      {error && <p className="body" style={{ color: 'var(--red)' }}>{error}</p>}
+      <div className="cta-bar cta-two">
+        <button className="btn secondary" onClick={onDone}>나중에</button>
+        <button className="btn" onClick={turnOn}>Face ID 켜기</button>
+      </div>
+    </main>
   );
 }
 

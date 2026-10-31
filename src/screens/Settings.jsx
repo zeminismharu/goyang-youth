@@ -1,13 +1,23 @@
 import React, { useEffect, useState } from 'react';
 import { db, setSetting, storageInfo, requestPersist } from '../lib/db.js';
 import { isStandalone } from './Home.jsx';
+import { disableFaceId, enableFaceId, faceIdEnabled, faceIdSupported } from '../lib/faceid.js';
 
 export default function Settings({ startDate, back, go }) {
   const [info, setInfo] = useState(null);
   const [date, setDate] = useState(startDate || '');
 
+  const [face, setFace] = useState({ supported: false, on: false, msg: '' });
+
   const refresh = async () => setInfo(await storageInfo());
-  useEffect(() => { refresh(); }, []);
+  const refreshFace = async () => setFace({ supported: await faceIdSupported(), on: await faceIdEnabled(), msg: '' });
+  useEffect(() => { refresh(); refreshFace(); }, []);
+
+  const toggleFace = async () => {
+    if (face.on) { await disableFaceId(); return refreshFace(); }
+    try { await enableFaceId(); refreshFace(); }
+    catch { setFace((f) => ({ ...f, msg: 'Face ID를 켜지 못했어요. 다시 시도해 주세요.' })); }
+  };
 
   const saveDate = async () => {
     if (!date) return;
@@ -32,7 +42,16 @@ export default function Settings({ startDate, back, go }) {
           <button className="list-row" onClick={() => go('change-pin')}>
             <span>비밀번호 바꾸기</span><span className="chev">›</span>
           </button>
+          {face.supported ? (
+            <button className="list-row" onClick={toggleFace} role="switch" aria-checked={face.on}>
+              <span>Face ID로 열기</span>
+              <span className={`switch ${face.on ? 'on' : ''}`} aria-hidden="true"><i /></span>
+            </button>
+          ) : (
+            <div className="list-row"><span className="sub">Face ID</span><span className="caption">이 기기/브라우저에서 사용할 수 없어요</span></div>
+          )}
         </div>
+        {face.msg && <p className="caption" style={{ color: 'var(--red)' }}>{face.msg}</p>}
         <p className="caption">앱을 처음 열 때, 그리고 1분 넘게 다른 앱을 쓰다 돌아올 때 물어봐요.</p>
       </section>
 

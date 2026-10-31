@@ -4,7 +4,8 @@ import { hasPin } from './lib/pin.js';
 import Home from './screens/Home.jsx';
 import Settings from './screens/Settings.jsx';
 import CheckinPlaceholder from './screens/CheckinPlaceholder.jsx';
-import { Unlock, SetPin } from './screens/Lock.jsx';
+import { Unlock, SetPin, FaceIdOffer } from './screens/Lock.jsx';
+import { faceIdSupported } from './lib/faceid.js';
 
 // 앱을 내렸다가 이 시간 이상 지나서 다시 열면 잠금
 const RELOCK_MS = 60 * 1000;
@@ -15,6 +16,7 @@ export default function App() {
   const [doneDays, setDoneDays] = useState(new Set());
   const [pinSet, setPinSet] = useState(undefined);
   const [locked, setLocked] = useState(true);
+  const [offerFace, setOfferFace] = useState(false);
   const hiddenAt = useRef(null);
 
   const reload = useCallback(async () => {
@@ -46,7 +48,14 @@ export default function App() {
 
   // 비밀번호가 없으면 먼저 만들기
   if (!pinSet) {
-    return <div className="app"><SetPin onDone={async () => { await reload(); setLocked(false); }} /></div>;
+    return (
+      <div className="app">
+        <SetPin onDone={async () => { setOfferFace(await faceIdSupported()); await reload(); setLocked(false); }} />
+      </div>
+    );
+  }
+  if (offerFace) {
+    return <div className="app"><FaceIdOffer onDone={() => setOfferFace(false)} /></div>;
   }
   if (locked) {
     return <div className="app"><Unlock onUnlock={() => setLocked(false)} /></div>;

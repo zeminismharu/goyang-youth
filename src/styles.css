@@ -132,3 +132,12 @@ input[type='date'] {
 .key:active:not(:disabled) { background: var(--fill); }
 .key:disabled { visibility: hidden; }
 .pin-footer { text-align: center; }
+
+/* Face ID */
+.face-btn { margin-bottom: 4px; }
+.pin-footer { display: flex; flex-direction: column; align-items: center; padding: 0 4px; }
+.cta-two { display: grid; grid-template-columns: 1fr 2fr; gap: 8px; }
+.switch { width: 51px; height: 31px; border-radius: 999px; background: var(--line); position: relative; flex: 0 0 auto; transition: background .15s; }
+.switch i { position: absolute; top: 2px; left: 2px; width: 27px; height: 27px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.2); transition: transform .15s; }
+.switch.on { background: var(--blue); }
+.switch.on i { transform: translateX(20px); }

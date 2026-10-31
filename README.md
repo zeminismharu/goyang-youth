@@ -6,7 +6,7 @@
 - 모든 기록·캡처는 **휴대폰 브라우저 안(IndexedDB)** 에만 저장. 서버·로그인·외부 전송 없음.
 - GitHub에는 **코드만** 올라감. GitHub Pages는 앱 파일을 내려주기만 함.
 - 체크인은 **그날 밤에 '오늘'을 기록**. 새벽 4시 전까지는 전날로 칩니다.
-- 앱 잠금: 4자리 비밀번호 (앱을 열 때, 1분 넘게 나갔다 돌아올 때). 비밀번호는 해시로만 저장. **기록 자체를 암호화하지는 않음.**
+- 앱 잠금: Face ID(WebAuthn, 서버 없음) + 4자리 비밀번호(Face ID 실패 시 대체) (앱을 열 때, 1분 넘게 나갔다 돌아올 때). 비밀번호는 해시로만 저장. **기록 자체를 암호화하지는 않음.**
 - 디자인: 토스 스타일 참고 (회색 배경 + 흰 카드, 큰 제목, 파란 강조색, 하단 고정 버튼). 토스 로고·이름·전용 폰트는 쓰지 않음.
 
 ## 진행 상황
@@ -27,6 +27,13 @@ npm run dev     # 같은 와이파이의 폰에서도 표시되는 주소로 접
 npm run build   # 배포용 파일을 dist/ 에 생성
 ```
 
-## 배포
-코드를 push하면 `.github/workflows/deploy.yml`이 자동으로 GitHub Pages에 배포합니다.
-처음 한 번: 저장소 Settings → Pages → Source를 **GitHub Actions**로 설정.
+## 배포 (둘 중 하나)
+결과물은 `npm run build`로 만든 `dist/` 폴더(정적 파일)뿐이라 어디든 올릴 수 있습니다.
+
+**A. Cloudflare Pages (추천)** — 저장소 연결 후 push마다 자동 배포
+- 빌드 명령 `npm run build`, 출력 폴더 `dist`, 프로덕션 브랜치는 이 저장소의 기본 브랜치
+
+**B. GitHub Pages** — `.github/workflows/deploy.yml`
+- 저장소 Settings → Pages → Source를 **GitHub Actions**로 설정해야 동작
+
+⚠️ Face ID 등록은 배포 주소(도메인)에 묶입니다. 주소를 바꾸면 Face ID를 다시 켜야 합니다.
