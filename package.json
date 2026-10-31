@@ -1,28 +1,21 @@
 {
-  "name": "goyang-youth",
-  "version": "0.1.0",
+  "name": "jeremy",
   "private": true,
+  "version": "0.1.0",
+  "type": "module",
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "next lint",
-    "cf:build": "opennextjs-cloudflare build",
-    "cf:preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
-    "cf:deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy"
+    "dev": "vite --host",
+    "build": "vite build",
+    "preview": "vite preview --host"
   },
   "dependencies": {
-    "@opennextjs/cloudflare": "^1.20.2",
-    "fast-xml-parser": "^4.5.0",
-    "lucide-react": "^0.451.0",
-    "next": "^15.0.0",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "dexie": "4.0.8",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
   },
   "devDependencies": {
-    "autoprefixer": "^10.4.20",
-    "postcss": "^8.4.47",
-    "tailwindcss": "^3.4.13",
-    "wrangler": "^4.123.0"
+    "@vitejs/plugin-react": "4.3.3",
+    "vite": "5.4.10",
+    "vite-plugin-pwa": "0.20.5"
   }
 }
