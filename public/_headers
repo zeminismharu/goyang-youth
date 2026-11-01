@@ -1,0 +1,10 @@
+# Cloudflare Pages 헤더 설정
+# 앱 업데이트 파일(sw.js)과 첫 화면은 매번 새로 확인 → 새 배포가 바로 반영됨
+/sw.js
+  Cache-Control: no-cache
+/index.html
+  Cache-Control: no-cache
+/
+  Cache-Control: no-cache
+/manifest.webmanifest
+  Cache-Control: no-cache
