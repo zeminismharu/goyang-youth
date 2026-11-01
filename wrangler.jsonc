@@ -1,0 +1,9 @@
+// Cloudflare 배포 설정 (Workers의 정적 파일 방식으로 연결했을 때 사용)
+// Cloudflare Pages로 연결했다면 이 파일은 쓰이지 않고, 대시보드 설정(빌드 명령/출력 폴더)을 따릅니다.
+{
+  "name": "jeremy",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    "directory": "./dist"
+  }
+}
