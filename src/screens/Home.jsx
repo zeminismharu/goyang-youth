@@ -1,6 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { exportBackup } from '../lib/backup.js';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../lib/db.js';
+import { isPredictionDone } from '../lib/prediction.js';
 import { setSetting } from '../lib/db.js';
 import { dateOfDay, dayStatuses, formatKDate, logicalToday, TOTAL_DAYS } from '../lib/days.js';
 
@@ -8,13 +10,15 @@ const LABEL = { done: '완료', due: '오늘', missed: '빠짐', future: '' };
 
 export default function Home({ startDate, doneDays, go, reload }) {
   const prep = useLiveQuery(async () => {
-    const pred = (await db.settings.get('prediction'))?.value || {};
+    const pred = (await db.settings.get('prediction'))?.value;
     const cl = (await db.settings.get('checklist'))?.value || {};
     const imgs = await db.images.where('day').equals(0).toArray();
     const checks = ['ytHistory', 'takeout', 'insta'].filter((k) => cl[k]).length
       + (imgs.some((r) => r.kind === 'googleAds') ? 1 : 0) + (imgs.some((r) => r.kind === 'instaAds') ? 1 : 0);
-    const predDone = pred.minutes != null && pred.apps?.length === 3 && pred.topics?.length === 3;
-    return { checks, predDone };
+    const predDone = isPredictionDone(pred);
+    const lastBackup = (await db.settings.get('lastBackup'))?.value || null;
+    const hasData = (await db.days.count()) > 0;
+    return { checks, predDone, lastBackup, hasData };
   }, []);
 
   if (!startDate) return <Intro reload={reload} go={go} />;
@@ -97,6 +101,8 @@ export default function Home({ startDate, doneDays, go, reload }) {
         </section>
       )}
 
+      {prep?.hasData && <BackupNudge last={prep.lastBackup} />}
+
       {cur === 0 && prep && !prep.predDone && (
         <div className="cta-bar">
           <button className="btn" onClick={() => go('day0')}>예측 남기기</button>
@@ -111,6 +117,27 @@ export default function Home({ startDate, doneDays, go, reload }) {
         </div>
       )}
     </main>
+  );
+}
+
+// 2일 넘게 백업을 안 했으면 홈에서 한 번 탭으로 백업
+function BackupNudge({ last }) {
+  const [msg, setMsg] = useState('');
+  const days = last ? Math.floor((Date.now() - last) / 86400000) : null;
+  if (days != null && days < 2 && !msg) return null;
+  const run = async () => {
+    setMsg('백업 파일을 만드는 중…');
+    try {
+      const r = await exportBackup();
+      setMsg(r.cancelled ? '' : `백업했어요 (${r.sizeMB}MB)`);
+    } catch { setMsg('백업하지 못했어요. 설정 > 데이터에서 다시 시도해 주세요.'); }
+  };
+  return (
+    <section className="card">
+      <p className="label">{days == null ? '아직 백업하지 않았어요' : `마지막 백업이 ${days}일 전이에요`}</p>
+      <p className="caption">휴대폰을 바꾸거나 앱이 지워져도 기록을 살릴 수 있게, 파일 앱이나 카톡 '나와의 채팅'에 저장해 두세요.</p>
+      {msg ? <p className="body sub">{msg}</p> : <button className="btn secondary sm" onClick={run}>지금 백업하기</button>}
+    </section>
   );
 }
 

@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { exportBackup, readBackup, restoreBackup, wipeAll } from '../lib/backup.js';
 import { db, setSetting, storageInfo, requestPersist } from '../lib/db.js';
 import { isStandalone } from './Home.jsx';
 import { disableFaceId, enableFaceId, faceIdEnabled, faceIdSupported } from '../lib/faceid.js';
@@ -93,16 +94,76 @@ export default function Settings({ startDate, back, go }) {
         )}
       </section>
 
-      <section className="card">
-        <p className="label">테스트용</p>
-        <p className="caption">시작일(0일차)을 과거로 바꾸면 '빠진 날' 표시를 확인할 수 있어요. 확인 후 실제 날짜로 되돌려 주세요.</p>
+      <DataSection back={back} />
+
+      <details className="card dev">
+        <summary className="label">개발자 테스트 (실험 중에는 쓰지 마세요)</summary>
+        <p className="caption">시작일(0일차)을 과거로 바꾸면 '빠진 날' 표시를 확인할 수 있어요.</p>
         <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
         <button className="btn secondary sm" onClick={saveDate}>시작일 저장</button>
         <button className="btn secondary sm" onClick={clearTest}>(테스트) 완료 표시 모두 지우기</button>
-      </section>
-
-      <p className="caption center">백업/복원, 모든 데이터 삭제는 1-4단계에서 추가돼요.</p>
+      </details>
     </main>
+  );
+}
+
+function DataSection({ back }) {
+  const [msg, setMsg] = useState('');
+  const [pending, setPending] = useState(null); // 복원할 백업 내용
+  const [wipeSure, setWipeSure] = useState(false);
+  const fileRef = useRef();
+
+  const doBackup = async () => {
+    setMsg('백업 파일을 만드는 중…');
+    try {
+      const r = await exportBackup();
+      setMsg(r.cancelled ? '' : `백업했어요 (${r.sizeMB}MB). 파일 앱이나 카톡 '나와의 채팅'에 저장해 두세요.`);
+    } catch { setMsg('백업하지 못했어요. 다시 시도해 주세요.'); }
+  };
+
+  const pickRestore = async (e) => {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if (!f) return;
+    try { setPending(await readBackup(f)); setMsg(''); } catch (err) { setMsg(err.message); }
+  };
+
+  const doRestore = async () => {
+    setMsg('복원하는 중…');
+    try { await restoreBackup(pending); setPending(null); back(); }
+    catch { setMsg('복원하지 못했어요. 파일이 손상됐을 수 있어요.'); }
+  };
+
+  const doWipe = async () => {
+    if (!wipeSure) { setWipeSure(true); return; }
+    await wipeAll();
+    window.location.reload();
+  };
+
+  return (
+    <section className="card">
+      <p className="label">데이터</p>
+      <p className="caption">기록은 이 휴대폰에만 있어요. 이틀에 한 번은 백업해 두세요.</p>
+      <button className="btn sm" onClick={doBackup}>백업 파일 저장</button>
+      <button className="btn secondary sm" onClick={() => fileRef.current.click()}>백업에서 복원</button>
+      <input ref={fileRef} type="file" accept=".json,application/json" hidden onChange={pickRestore} />
+      {pending && (
+        <div className="confirm-box">
+          <p className="body">
+            {new Date(pending.exportedAt).toLocaleString('ko-KR')} 백업 · 기록 {pending.days.length}일 · 사진 {pending.images?.length || 0}장
+          </p>
+          <p className="caption">지금 이 휴대폰의 기록은 지워지고 백업 내용으로 바뀌어요.</p>
+          <div className="two">
+            <button className="btn secondary sm" onClick={() => setPending(null)}>취소</button>
+            <button className="btn sm" onClick={doRestore}>복원하기</button>
+          </div>
+        </div>
+      )}
+      {msg && <p className="body sub">{msg}</p>}
+      <button className="btn sm danger-soft" onClick={doWipe}>
+        {wipeSure ? '한 번 더 누르면 전부 지워져요 (되돌릴 수 없음)' : '모든 데이터 삭제'}
+      </button>
+    </section>
   );
 }
 

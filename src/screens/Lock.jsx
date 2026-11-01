@@ -111,7 +111,7 @@ function Forgot({ back }) {
         비밀번호는 이 휴대폰에만 있고 어디에도 보내지 않아서, 찾아드릴 방법이 없어요.
         처음부터 다시 시작하려면 모든 데이터를 지워야 해요.
       </p>
-      <p className="body sub">백업 파일이 있다면 지운 뒤 복원할 수 있어요. (백업 기능은 1-4단계에서 추가돼요)</p>
+      <p className="body sub">백업 파일이 있다면 지운 뒤 설정 &gt; 데이터 &gt; 백업에서 복원으로 되살릴 수 있어요.</p>
       <div className="cta-bar"><button className="btn danger" onClick={wipe}>{sure ? '한 번 더 누르면 전부 지워져요 (되돌릴 수 없음)' : '모든 데이터 지우고 처음부터'}</button></div>
     </main>
   );

@@ -3,6 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db, setSetting } from '../lib/db.js';
 import { APP_OPTIONS, TOPIC_OPTIONS, fmtMinutes } from '../lib/options.js';
 import { ChipPicker, ImageSlot, TimeInput } from '../components/ui.jsx';
+import { CONFIDENCE, confLabel, isPredictionDone, normalizePrediction } from '../lib/prediction.js';
 
 const QUICK_HOURS = [2, 3, 4, 5, 6, 7, 8];
 
@@ -54,13 +55,14 @@ export default function Day0({ cur, back }) {
   if (!prediction || !checklist || !adImgs) return <main className="screen" />;
 
   const locked = cur >= 1; // 1일차부터는 예측을 못 바꿈 (정직한 비교를 위해)
-  const p = { minutes: null, apps: [], topics: [], ...prediction };
+  const p = normalizePrediction(prediction);
+  const setConf = (k, v) => update({ confidence: { ...p.confidence, [k]: p.confidence[k] === v ? undefined : v } });
   const update = (patch) => setSetting('prediction', { ...p, ...patch, updatedAt: Date.now() });
   const toggleCheck = (id) => setSetting('checklist', { ...checklist, [id]: !checklist[id] });
   const hasImg = (k) => adImgs.some((r) => r.kind === k);
 
   const doneCount = CHECKS.filter((c) => checklist[c.id]).length + (hasImg('googleAds') ? 1 : 0) + (hasImg('instaAds') ? 1 : 0);
-  const predDone = p.minutes != null && p.apps.length === 3 && p.topics.length === 3;
+  const predDone = isPredictionDone(p);
 
   return (
     <main className="screen has-cta">
@@ -74,9 +76,9 @@ export default function Day0({ cur, back }) {
       {locked ? (
         <section className="card">
           <p className="label">내 예측 <span className="caption">(고정됨)</span></p>
-          <Row k="하루 평균 사용" v={fmtMinutes(p.minutes)} />
-          <Row k="많이 쓰는 앱" v={p.apps.join(', ') || '-'} />
-          <Row k="주로 보는 주제" v={p.topics.join(', ') || '-'} />
+          <Row k="하루 평균 사용" v={fmtMinutes(p.minutes)} c={p.confidence.minutes} />
+          <Row k="많이 쓰는 앱" v={p.apps.join(', ') || '-'} c={p.confidence.apps} />
+          <Row k="주로 보는 주제" v={[p.topicsUnknown && '잘 모르겠어요', p.topics.join(', ')].filter(Boolean).join(' · ') || '-'} c={p.confidence.topics} />
         </section>
       ) : (
         <>
@@ -90,17 +92,25 @@ export default function Day0({ cur, back }) {
               ))}
             </div>
             <TimeInput minutes={p.minutes} onChange={(m) => update({ minutes: m })} label="예상 하루 평균 사용 시간" />
+            <Confidence value={p.confidence.minutes} onPick={(v) => setConf('minutes', v)} />
           </section>
 
           <section className="card">
             <p className="label">2. 가장 많이 쓰는 앱 3개 <Count n={p.apps.length} /></p>
             <p className="caption">많이 쓰는 순서대로 눌러 주세요.</p>
             <ChipPicker options={APP_OPTIONS} selected={p.apps} onChange={(apps) => update({ apps })} />
+            <Confidence value={p.confidence.apps} onPick={(v) => setConf('apps', v)} />
           </section>
 
           <section className="card">
-            <p className="label">3. 주로 보는 주제 3개 <Count n={p.topics.length} /></p>
+            <p className="label">3. 주로 보는 주제 3개 <Count n={p.topics.length} ok={p.topicsUnknown} /></p>
+            <p className="caption">어제 유튜브·인스타에서 본 영상 3개를 떠올려 보세요. 모르겠다면 그것도 중요한 답이에요.</p>
+            <button className={`chip unknown ${p.topicsUnknown ? 'on' : ''}`} onClick={() => update({ topicsUnknown: !p.topicsUnknown })}>
+              🤷 잘 모르겠어요
+            </button>
+            {p.topicsUnknown && <p className="caption">짐작 가는 게 있으면 0~3개까지 골라도 돼요.</p>}
             <ChipPicker options={TOPIC_OPTIONS} selected={p.topics} onChange={(topics) => update({ topics })} />
+            <Confidence value={p.confidence.topics} onPick={(v) => setConf('topics', v)} />
           </section>
         </>
       )}
@@ -149,10 +159,29 @@ export default function Day0({ cur, back }) {
   );
 }
 
-function Count({ n }) {
-  return <span className={`count ${n === 3 ? 'full' : ''}`}>{n}/3</span>;
+function Count({ n, ok }) {
+  return <span className={`count ${n === 3 || ok ? 'full' : ''}`}>{n}/3</span>;
 }
 
-function Row({ k, v }) {
-  return <div className="row"><span className="sub">{k}</span><b>{v}</b></div>;
+// 예측을 얼마나 확신하는지 (선택, 한 번 탭)
+function Confidence({ value, onPick }) {
+  return (
+    <div className="conf">
+      <span className="caption">얼마나 확신해요?</span>
+      <div className="seg">
+        {CONFIDENCE.map((c) => (
+          <button key={c.v} className={value === c.v ? 'on' : ''} onClick={() => onPick(c.v)}>{c.t}</button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Row({ k, v, c }) {
+  return (
+    <div className="row">
+      <span className="sub">{k}</span>
+      <b>{v}{c && <span className="caption"> · {confLabel(c)}</span>}</b>
+    </div>
+  );
 }

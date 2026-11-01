@@ -234,3 +234,18 @@ input::placeholder { color: var(--muted); }
 .card.prep.emph { box-shadow: inset 0 0 0 2px var(--blue); }
 
 .preview-bar { margin: 4px 0 0; padding: 8px 12px; border-radius: 12px; background: var(--blue-weak); color: var(--blue); font-size: 12px; font-weight: 600; text-align: center; }
+
+/* 확신 정도 */
+.conf { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.seg { display: grid; grid-template-columns: repeat(3, 1fr); background: var(--fill); border-radius: 12px; padding: 3px; gap: 3px; }
+.seg button { border: 0; background: none; border-radius: 10px; padding: 9px 0; font-size: 14px; font-weight: 600; color: var(--sub); }
+.seg button.on { background: var(--surface); color: var(--blue); box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+.chip.unknown { align-self: flex-start; }
+
+/* 데이터 */
+.confirm-box { background: var(--fill); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 6px; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.btn.danger-soft { background: var(--red-weak); color: var(--red); }
+details.dev summary { cursor: pointer; list-style: none; color: var(--muted); font-size: 14px; }
+details.dev summary::-webkit-details-marker { display: none; }
+details.dev:not([open]) { padding-block: 14px; }
