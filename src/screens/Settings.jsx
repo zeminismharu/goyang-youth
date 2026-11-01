@@ -103,6 +103,8 @@ export default function Settings({ startDate, back, go }) {
         <button className="btn secondary sm" onClick={saveDate}>시작일 저장</button>
         <button className="btn secondary sm" onClick={clearTest}>(테스트) 완료 표시 모두 지우기</button>
       </details>
+
+      <p className="caption center">버전 {__BUILD__}</p>
     </main>
   );
 }

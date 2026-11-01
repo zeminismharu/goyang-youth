@@ -175,6 +175,8 @@ function Intro({ reload, go }) {
         </section>
       )}
 
+      <p className="caption center">버전 {__BUILD__}</p>
+
       <div className="cta-bar">
         <button className="btn" onClick={start}>오늘을 0일차로 시작하기</button>
       </div>

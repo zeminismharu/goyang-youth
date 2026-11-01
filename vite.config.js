@@ -7,13 +7,19 @@ const PREVIEW = process.env.PREVIEW === '1'; // 폰 미리보기용(서비스 �
 
 export default defineConfig({
   base: './',
-  define: { __PREVIEW__: JSON.stringify(PREVIEW) },
+  define: {
+    __PREVIEW__: JSON.stringify(PREVIEW),
+    // 화면에 표시할 버전(빌드 시각, 한국 시간) → 새 배포가 들어왔는지 눈으로 확인
+    __BUILD__: JSON.stringify(new Date(Date.now() + 9 * 3600e3).toISOString().slice(5, 16).replace('T', ' ')),
+  },
   build: { outDir: PREVIEW ? 'dist-preview' : 'dist' },
   plugins: [
     react(),
     !PREVIEW && VitePWA({
       registerType: 'autoUpdate',
+      injectRegister: false, // main.jsx에서 직접 등록 (새 버전이 오면 자동 새로고침)
       includeAssets: ['apple-touch-icon.png'],
+      workbox: { skipWaiting: true, clientsClaim: true, cleanupOutdatedCaches: true },
       manifest: {
         name: '제레미 7일 실험',
         short_name: '제레미',
