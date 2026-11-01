@@ -3,7 +3,9 @@ import { db, getSetting, requestPersist } from './lib/db.js';
 import { hasPin } from './lib/pin.js';
 import Home from './screens/Home.jsx';
 import Settings from './screens/Settings.jsx';
-import CheckinPlaceholder from './screens/CheckinPlaceholder.jsx';
+import Checkin from './screens/Checkin.jsx';
+import Day0 from './screens/Day0.jsx';
+import { currentDay } from './lib/days.js';
 import { Unlock, SetPin, FaceIdOffer } from './screens/Lock.jsx';
 import { faceIdSupported } from './lib/faceid.js';
 
@@ -22,7 +24,8 @@ export default function App() {
   const reload = useCallback(async () => {
     setStartDate(await getSetting('startDate'));
     const days = await db.days.toArray();
-    setDoneDays(new Set(days.map((d) => d.day)));
+    // 총 사용 시간을 넣었으면 '완료'로 봄
+    setDoneDays(new Set(days.filter((d) => d.totalMinutes != null || d.test).map((d) => d.day)));
     setPinSet(await hasPin());
   }, []);
 
@@ -63,7 +66,8 @@ export default function App() {
   return (
     <div className="app">
       {screen.name === 'home' && <Home startDate={startDate} doneDays={doneDays} go={go} reload={reload} />}
-      {screen.name === 'checkin' && <CheckinPlaceholder day={screen.day} startDate={startDate} back={back} />}
+      {screen.name === 'checkin' && <Checkin key={screen.day} day={screen.day} startDate={startDate} back={back} />}
+      {screen.name === 'day0' && <Day0 cur={startDate ? currentDay(startDate) : 0} back={back} />}
       {screen.name === 'settings' && <Settings startDate={startDate} back={back} go={go} />}
       {screen.name === 'change-pin' && <SetPin title="새 비밀번호 4자리" onDone={back} onCancel={back} />}
       {screen.name === 'new-pin' && (

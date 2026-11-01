@@ -1,11 +1,23 @@
 import React from 'react';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { db } from '../lib/db.js';
 import { setSetting } from '../lib/db.js';
 import { dateOfDay, dayStatuses, formatKDate, logicalToday, TOTAL_DAYS } from '../lib/days.js';
 
 const LABEL = { done: '완료', due: '오늘', missed: '빠짐', future: '' };
 
 export default function Home({ startDate, doneDays, go, reload }) {
-  if (!startDate) return <Intro reload={reload} />;
+  const prep = useLiveQuery(async () => {
+    const pred = (await db.settings.get('prediction'))?.value || {};
+    const cl = (await db.settings.get('checklist'))?.value || {};
+    const imgs = await db.images.where('day').equals(0).toArray();
+    const checks = ['ytHistory', 'takeout', 'insta'].filter((k) => cl[k]).length
+      + (imgs.some((r) => r.kind === 'googleAds') ? 1 : 0) + (imgs.some((r) => r.kind === 'instaAds') ? 1 : 0);
+    const predDone = pred.minutes != null && pred.apps?.length === 3 && pred.topics?.length === 3;
+    return { checks, predDone };
+  }, []);
+
+  if (!startDate) return <Intro reload={reload} go={go} />;
 
   const { cur, target, list } = dayStatuses(startDate, doneDays);
   const missed = list.filter((d) => d.status === 'missed');
@@ -58,6 +70,18 @@ export default function Home({ startDate, doneDays, go, reload }) {
         </section>
       )}
 
+      {prep && (
+        <button className={`card prep ${cur === 0 && !prep.predDone ? 'emph' : ''}`} onClick={() => go('day0')}>
+          <span>
+            <span className="label">0일차 예측과 준비</span>
+            <span className="caption block">
+              예측 {prep.predDone ? '완료' : '아직'} · 체크리스트 {prep.checks}/5
+            </span>
+          </span>
+          <span className="chev">›</span>
+        </button>
+      )}
+
       {missed.length > 0 && (
         <section className="card">
           <p className="label red">빠진 날 {missed.length}일</p>
@@ -73,6 +97,12 @@ export default function Home({ startDate, doneDays, go, reload }) {
         </section>
       )}
 
+      {cur === 0 && prep && !prep.predDone && (
+        <div className="cta-bar">
+          <button className="btn" onClick={() => go('day0')}>예측 남기기</button>
+        </div>
+      )}
+
       {canRecordToday && (
         <div className="cta-bar">
           <button className="btn" onClick={() => go('checkin', { day: target })}>
@@ -84,10 +114,11 @@ export default function Home({ startDate, doneDays, go, reload }) {
   );
 }
 
-function Intro({ reload }) {
+function Intro({ reload, go }) {
   const start = async () => {
     await setSetting('startDate', logicalToday());
     await reload();
+    go('day0');
   };
   const today = logicalToday();
   return (
