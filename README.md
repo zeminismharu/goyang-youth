@@ -30,7 +30,8 @@ npm run build   # 배포용 파일을 dist/ 에 생성
 ## 배포: Cloudflare
 결과물은 `npm run build`로 만든 `dist/` 폴더(정적 파일)뿐입니다. Cloudflare가 GitHub 저장소를 지켜보다가 push될 때마다 자동으로 빌드·배포합니다.
 
-- **Pages로 연결할 때:** 빌드 명령 `npm run build`, 출력 폴더 `dist`
+- **Pages로 연결할 때:** 빌드 명령 `npm run build`, 출력 폴더 `dist` (비워 두면 원본이 그대로 올라가 흰 화면이 됨)
+- Node 버전은 `.node-version`(20)으로 고정
 - **Workers로 연결할 때:** 빌드 명령 `npm run build`, 배포 명령 `npx wrangler deploy` (`wrangler.jsonc` 사용)
 
 ⚠️ Face ID 등록은 배포 주소(도메인)에 묶입니다. 주소를 바꾸면 Face ID를 다시 켜야 합니다.
