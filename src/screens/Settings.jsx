@@ -2,16 +2,25 @@ import React, { useEffect, useState } from 'react';
 import { db, setSetting, storageInfo, requestPersist } from '../lib/db.js';
 import { isStandalone } from './Home.jsx';
 import { disableFaceId, enableFaceId, faceIdEnabled, faceIdSupported } from '../lib/faceid.js';
+import { hasPin, removePin } from '../lib/pin.js';
 
 export default function Settings({ startDate, back, go }) {
   const [info, setInfo] = useState(null);
   const [date, setDate] = useState(startDate || '');
 
   const [face, setFace] = useState({ supported: false, on: false, msg: '' });
+  const [pinOn, setPinOn] = useState(false);
 
   const refresh = async () => setInfo(await storageInfo());
   const refreshFace = async () => setFace({ supported: await faceIdSupported(), on: await faceIdEnabled(), msg: '' });
-  useEffect(() => { refresh(); refreshFace(); }, []);
+  useEffect(() => { refresh(); refreshFace(); hasPin().then(setPinOn); }, []);
+
+  const turnOffLock = async () => {
+    if (!window.confirm('잠금을 끌까요? 앱을 열면 바로 기록이 보여요.')) return;
+    await disableFaceId();
+    await removePin();
+    back();
+  };
 
   const toggleFace = async () => {
     if (face.on) { await disableFaceId(); return refreshFace(); }
@@ -38,21 +47,37 @@ export default function Settings({ startDate, back, go }) {
 
       <section className="card">
         <p className="label">보안</p>
-        <div className="list">
-          <button className="list-row" onClick={() => go('change-pin')}>
-            <span>비밀번호 바꾸기</span><span className="chev">›</span>
-          </button>
-          {face.supported ? (
-            <button className="list-row" onClick={toggleFace} role="switch" aria-checked={face.on}>
-              <span>Face ID로 열기</span>
-              <span className={`switch ${face.on ? 'on' : ''}`} aria-hidden="true"><i /></span>
-            </button>
-          ) : (
-            <div className="list-row"><span className="sub">Face ID</span><span className="caption">이 기기/브라우저에서 사용할 수 없어요</span></div>
-          )}
-        </div>
-        {face.msg && <p className="caption" style={{ color: 'var(--red)' }}>{face.msg}</p>}
-        <p className="caption">앱을 처음 열 때, 그리고 1분 넘게 다른 앱을 쓰다 돌아올 때 물어봐요.</p>
+        {!pinOn ? (
+          <>
+            <div className="list">
+              <button className="list-row" onClick={() => go('new-pin')}>
+                <span>비밀번호 잠금 켜기</span><span className="chev">›</span>
+              </button>
+            </div>
+            <p className="caption">지금은 잠금이 꺼져 있어요. 켜면 비밀번호 4자리와 Face ID로 앱을 잠글 수 있어요.</p>
+          </>
+        ) : (
+          <>
+            <div className="list">
+              <button className="list-row" onClick={() => go('change-pin')}>
+                <span>비밀번호 바꾸기</span><span className="chev">›</span>
+              </button>
+              {face.supported ? (
+                <button className="list-row" onClick={toggleFace} role="switch" aria-checked={face.on}>
+                  <span>Face ID로 열기</span>
+                  <span className={`switch ${face.on ? 'on' : ''}`} aria-hidden="true"><i /></span>
+                </button>
+              ) : (
+                <div className="list-row"><span className="sub">Face ID</span><span className="caption">이 기기/브라우저에서 사용할 수 없어요</span></div>
+              )}
+              <button className="list-row" onClick={turnOffLock}>
+                <span style={{ color: 'var(--red)' }}>잠금 끄기</span><span className="chev">›</span>
+              </button>
+            </div>
+            {face.msg && <p className="caption" style={{ color: 'var(--red)' }}>{face.msg}</p>}
+            <p className="caption">앱을 처음 열 때, 그리고 1분 넘게 다른 앱을 쓰다 돌아올 때 물어봐요.</p>
+          </>
+        )}
       </section>
 
       <section className="card">

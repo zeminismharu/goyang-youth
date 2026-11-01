@@ -46,18 +46,11 @@ export default function App() {
 
   if (startDate === undefined || pinSet === undefined) return <div className="app" />;
 
-  // 비밀번호가 없으면 먼저 만들기
-  if (!pinSet) {
-    return (
-      <div className="app">
-        <SetPin onDone={async () => { setOfferFace(await faceIdSupported()); await reload(); setLocked(false); }} />
-      </div>
-    );
-  }
+  // 잠금은 선택 사항: 설정에서 비밀번호를 켠 경우에만 잠금 화면
   if (offerFace) {
     return <div className="app"><FaceIdOffer onDone={() => setOfferFace(false)} /></div>;
   }
-  if (locked) {
+  if (pinSet && locked) {
     return <div className="app"><Unlock onUnlock={() => setLocked(false)} /></div>;
   }
 
@@ -73,6 +66,12 @@ export default function App() {
       {screen.name === 'checkin' && <CheckinPlaceholder day={screen.day} startDate={startDate} back={back} />}
       {screen.name === 'settings' && <Settings startDate={startDate} back={back} go={go} />}
       {screen.name === 'change-pin' && <SetPin title="새 비밀번호 4자리" onDone={back} onCancel={back} />}
+      {screen.name === 'new-pin' && (
+        <SetPin
+          onDone={async () => { setLocked(false); setOfferFace(await faceIdSupported()); back(); }}
+          onCancel={back}
+        />
+      )}
     </div>
   );
 }
