@@ -97,8 +97,9 @@ export function FaceIdOffer({ onDone }) {
 }
 
 function Forgot({ back }) {
+  const [sure, setSure] = useState(false);
   const wipe = async () => {
-    if (!window.confirm('기록과 캡처가 전부 지워지고 되돌릴 수 없어요. 정말 지울까요?')) return;
+    if (!sure) { setSure(true); return; }
     await db.delete();
     window.location.reload();
   };
@@ -111,7 +112,7 @@ function Forgot({ back }) {
         처음부터 다시 시작하려면 모든 데이터를 지워야 해요.
       </p>
       <p className="body sub">백업 파일이 있다면 지운 뒤 복원할 수 있어요. (백업 기능은 1-4단계에서 추가돼요)</p>
-      <div className="cta-bar"><button className="btn danger" onClick={wipe}>모든 데이터 지우고 처음부터</button></div>
+      <div className="cta-bar"><button className="btn danger" onClick={wipe}>{sure ? '한 번 더 누르면 전부 지워져요 (되돌릴 수 없음)' : '모든 데이터 지우고 처음부터'}</button></div>
     </main>
   );
 }

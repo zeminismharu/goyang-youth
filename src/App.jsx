@@ -65,6 +65,9 @@ export default function App() {
 
   return (
     <div className="app">
+      {__PREVIEW__ && (
+        <div className="preview-bar">미리보기 · 여기 입력한 내용은 실제 앱으로 옮겨지지 않아요</div>
+      )}
       {screen.name === 'home' && <Home startDate={startDate} doneDays={doneDays} go={go} reload={reload} />}
       {screen.name === 'checkin' && <Checkin key={screen.day} day={screen.day} startDate={startDate} back={back} />}
       {screen.name === 'day0' && <Day0 cur={startDate ? currentDay(startDate) : 0} back={back} />}

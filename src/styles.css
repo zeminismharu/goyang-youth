@@ -15,11 +15,18 @@
   --green: #03b26c;
 }
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #17171c; --surface: #202027; --text: #ececf1; --sub: #b0b0b8; --muted: #7e7e87;
     --line: #2c2c35; --fill: #2c2c35; --blue: #4593fc; --blue-weak: #1b2a40; --blue-ink: #ffffff;
     --red: #f66570; --red-weak: #3a1f23; --green: #29c47f;
+    color-scheme: dark;
   }
+}
+:root[data-theme="dark"] {
+    --bg: #17171c; --surface: #202027; --text: #ececf1; --sub: #b0b0b8; --muted: #7e7e87;
+    --line: #2c2c35; --fill: #2c2c35; --blue: #4593fc; --blue-weak: #1b2a40; --blue-ink: #ffffff;
+    --red: #f66570; --red-weak: #3a1f23; --green: #29c47f;
+  color-scheme: dark;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--bg); color: var(--text); }
@@ -225,3 +232,5 @@ input::placeholder { color: var(--muted); }
 /* 홈: 0일차 카드 */
 .card.prep { flex-direction: row; justify-content: space-between; align-items: center; border: 0; text-align: left; width: 100%; }
 .card.prep.emph { box-shadow: inset 0 0 0 2px var(--blue); }
+
+.preview-bar { margin: 4px 0 0; padding: 8px 12px; border-radius: 12px; background: var(--blue-weak); color: var(--blue); font-size: 12px; font-weight: 600; text-align: center; }

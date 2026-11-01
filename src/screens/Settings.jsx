@@ -15,8 +15,9 @@ export default function Settings({ startDate, back, go }) {
   const refreshFace = async () => setFace({ supported: await faceIdSupported(), on: await faceIdEnabled(), msg: '' });
   useEffect(() => { refresh(); refreshFace(); hasPin().then(setPinOn); }, []);
 
+  const [confirmOff, setConfirmOff] = useState(false);
   const turnOffLock = async () => {
-    if (!window.confirm('잠금을 끌까요? 앱을 열면 바로 기록이 보여요.')) return;
+    if (!confirmOff) { setConfirmOff(true); return; }
     await disableFaceId();
     await removePin();
     back();
@@ -71,7 +72,7 @@ export default function Settings({ startDate, back, go }) {
                 <div className="list-row"><span className="sub">Face ID</span><span className="caption">이 기기/브라우저에서 사용할 수 없어요</span></div>
               )}
               <button className="list-row" onClick={turnOffLock}>
-                <span style={{ color: 'var(--red)' }}>잠금 끄기</span><span className="chev">›</span>
+                <span style={{ color: 'var(--red)' }}>{confirmOff ? '한 번 더 누르면 잠금이 꺼져요' : '잠금 끄기'}</span><span className="chev">›</span>
               </button>
             </div>
             {face.msg && <p className="caption" style={{ color: 'var(--red)' }}>{face.msg}</p>}

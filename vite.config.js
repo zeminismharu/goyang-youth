@@ -3,11 +3,15 @@ import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
 // base: './' → 저장소 이름이 바뀌어도(goyang-youth → jeremy) 그대로 동작하게 상대경로로 빌드
+const PREVIEW = process.env.PREVIEW === '1'; // 폰 미리보기용(서비스 워커 없음)
+
 export default defineConfig({
   base: './',
+  define: { __PREVIEW__: JSON.stringify(PREVIEW) },
+  build: { outDir: PREVIEW ? 'dist-preview' : 'dist' },
   plugins: [
     react(),
-    VitePWA({
+    !PREVIEW && VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['apple-touch-icon.png'],
       manifest: {
