@@ -19,7 +19,10 @@ export default defineConfig({
       registerType: 'autoUpdate',
       injectRegister: false, // main.jsx에서 직접 등록 (새 버전이 오면 자동 새로고침)
       includeAssets: ['apple-touch-icon.png'],
-      workbox: { skipWaiting: true, clientsClaim: true, cleanupOutdatedCaches: true },
+      workbox: {
+        skipWaiting: true, clientsClaim: true, cleanupOutdatedCaches: true,
+        navigateFallbackDenylist: [/^\/about/], // 랜딩페이지는 앱 화면으로 바꾸지 않음
+      },
       manifest: {
         name: '제레미 7일 실험',
         short_name: '제레미',
